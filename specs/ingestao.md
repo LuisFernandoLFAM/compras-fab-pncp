@@ -27,6 +27,8 @@ O endpoint de contratações exige uma modalidade por consulta. A ingestão cons
 
 **Custo da decisão:** 7 chamadas a mais por mês consultado, que respondem rápido e sem conteúdo.
 
+Otimização avaliada e não adotada: uma consulta de sondagem por modalidade para o período inteiro evitaria cerca de 280 chamadas vazias na carga completa. Não foi adotada porque a carga completa roda raramente e o incremental faz poucas chamadas.
+
 ### 2. Período: de 01/01/2023 até ontem
 
 - Data inicial fixa: 01/01/2023. Antes disso a FAB praticamente não publicava no PNCP (14 registros de pregão e inexigibilidade em 2022, contra 1.028 em 2023).
@@ -84,7 +86,7 @@ Regras fixas:
   - Demais falhas temporárias: 2, 4 e 8 segundos.
 - Cada nova tentativa gera uma linha de aviso no log com o código (ou o erro), quanto tempo vai esperar e qual tentativa é (por exemplo, "nova tentativa 2 de 3 em 60 s"), para a execução não parecer travada.
 - HTTP 204 (sem conteúdo) é vazio legítimo, não erro.
-- Pausa de 0,5 segundo entre chamadas, para não sobrecarregar uma API pública.
+- Pausa de 3 segundos entre chamadas, para não sobrecarregar uma API pública e ficar abaixo do limite de requisições.
 - As chamadas se identificam com um User-Agent com o nome e o link do projeto.
 - **Erro nunca vira zero.** Qualquer falha que não seja vazio legítimo é tratada como falha.
 
@@ -93,6 +95,10 @@ Falha persistente (depois das novas tentativas) ou qualquer outro código HTTP: 
 **Motivo:** durante a exploração, um script de teste transformou uma consulta que falhou em "zero pregões em 2025", quando eram 2.012. Erro calado é o pior tipo de erro.
 
 Na primeira carga real (07/11/2026), a API respondeu HTTP 429 de forma persistente na janela 2023-07-01_2023-07-31 da modalidade 1, depois de 6 janelas concluídas. As esperas de 2, 4 e 8 segundos, pensadas para instabilidade passageira, não bastaram para o limite de requisições, e a execução parou (como previsto, sem perder as janelas concluídas). Por isso o 429 ganhou esperas próprias, mais longas, e respeita o `Retry-After` quando a API o informa.
+
+A carga completa seguinte terminou com sucesso, com a pausa original de 0,5 segundo: 1.027 chamadas e 81 minutos de tempo ativo (descontadas as suspensões do computador). A API respondeu 429 74 vezes, e as esperas desses 429 consumiram cerca de metade do tempo ativo. O padrão das chamadas indica um limite de cerca de 20 chamadas por minuto, com rajadas de cerca de 7. Por isso a pausa passou para 3 segundos. Análise completa em [docs/analise-carga-completa.md](../docs/analise-carga-completa.md).
+
+**Custo da decisão:** a pausa de 3 segundos não reduz o tempo da carga completa (estimativa: cerca de 85 minutos ativos, contra 81 com a pausa de 0,5 segundo), porque o limite da API já é o que define a duração. Em troca, as respostas 429 caem de 74 para no máximo cerca de 10, a execução fica mais previsível e o risco de um 429 persistente parar a carga diminui.
 
 ### 7. Conferência
 
@@ -176,6 +182,8 @@ uv run python -m pipeline.ingestao --completa         # força a carga completa
 uv run python -m pipeline.ingestao --ate 2026-10-31   # define a data final
 uv run python -m pipeline.ingestao --reconstruir      # recria a raw a partir da landing, sem API
 ```
+
+Recomendação: desative a suspensão do computador durante a carga completa. Na primeira carga, o computador suspendeu três vezes; o pipeline retomou sozinho graças às novas tentativas, mas o tempo total passou de 9 horas, das quais só 81 minutos foram de execução.
 
 ## Definição de pronto
 
