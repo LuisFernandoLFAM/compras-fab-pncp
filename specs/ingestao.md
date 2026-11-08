@@ -78,7 +78,11 @@ Regras fixas:
 - Consultas em janelas de no máximo um mês (janelas de seis meses chegaram a 10 segundos por página e uma consulta travou).
 - Páginas de 50 registros, o máximo aceito pela API.
 - Tempo limite de 60 segundos por chamada.
-- Até 3 novas tentativas, com espera crescente (2, 4 e 8 segundos), apenas para falhas temporárias: tempo esgotado, erro de conexão, HTTP 429 e HTTP 5xx.
+- Até 3 novas tentativas, apenas para falhas temporárias: tempo esgotado, erro de conexão, HTTP 429 e HTTP 5xx.
+- Espera antes de cada nova tentativa:
+  - HTTP 429 (limite de requisições): o tempo indicado no cabeçalho `Retry-After`, se a resposta trouxer; se não trouxer, 30, 60 e 120 segundos.
+  - Demais falhas temporárias: 2, 4 e 8 segundos.
+- Cada nova tentativa gera uma linha de aviso no log com o código (ou o erro), quanto tempo vai esperar e qual tentativa é (por exemplo, "nova tentativa 2 de 3 em 60 s"), para a execução não parecer travada.
 - HTTP 204 (sem conteúdo) é vazio legítimo, não erro.
 - Pausa de 0,5 segundo entre chamadas, para não sobrecarregar uma API pública.
 - As chamadas se identificam com um User-Agent com o nome e o link do projeto.
@@ -87,6 +91,8 @@ Regras fixas:
 Falha persistente (depois das novas tentativas) ou qualquer outro código HTTP: a execução **para**, com mensagem dizendo endpoint, modalidade, janela e página. As janelas já concluídas permanecem na landing zone, e a próxima execução retoma a partir das janelas sem manifesto.
 
 **Motivo:** durante a exploração, um script de teste transformou uma consulta que falhou em "zero pregões em 2025", quando eram 2.012. Erro calado é o pior tipo de erro.
+
+Na primeira carga real (07/11/2026), a API respondeu HTTP 429 de forma persistente na janela 2023-07-01_2023-07-31 da modalidade 1, depois de 6 janelas concluídas. As esperas de 2, 4 e 8 segundos, pensadas para instabilidade passageira, não bastaram para o limite de requisições, e a execução parou (como previsto, sem perder as janelas concluídas). Por isso o 429 ganhou esperas próprias, mais longas, e respeita o `Retry-After` quando a API o informa.
 
 ### 7. Conferência
 
