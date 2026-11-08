@@ -60,7 +60,7 @@ def test_falha_temporaria_tenta_de_novo_com_espera_crescente(cfg):
     assert c.buscar("/v1/contratos", {}, "ctx").classe is ClasseResposta.SUCESSO
     assert c.chamadas == 4
     # Antes de cada nova tentativa: espera crescente + pausa entre chamadas.
-    assert esperas == [2, 0.5, 4, 0.5, 8, 0.5]
+    assert esperas == [2, cfg.pausa, 4, cfg.pausa, 8, cfg.pausa]
 
 
 def test_429_com_retry_after_espera_o_tempo_indicado(cfg):
@@ -68,7 +68,7 @@ def test_429_com_retry_after_espera_o_tempo_indicado(cfg):
         cfg, [RespostaHTTP(429, headers={"Retry-After": "17"}), RespostaHTTP(200, b"{}")]
     )
     assert c.buscar("/v1/contratos", {}, "ctx").classe is ClasseResposta.SUCESSO
-    assert esperas == [17, 0.5]
+    assert esperas == [17, cfg.pausa]
 
 
 def test_429_sem_retry_after_espera_30_60_120(cfg):
@@ -76,7 +76,7 @@ def test_429_sem_retry_after_espera_30_60_120(cfg):
     with pytest.raises(FalhaAPI, match="persistente.*HTTP 429"):
         c.buscar("/v1/contratos", {}, "ctx")
     assert len(sessao.chamadas) == 4
-    assert esperas == [30, 0.5, 60, 0.5, 120, 0.5]
+    assert esperas == [30, cfg.pausa, 60, cfg.pausa, 120, cfg.pausa]
 
 
 def test_429_e_outras_falhas_misturadas_usam_cada_uma_sua_espera(cfg):
@@ -84,7 +84,7 @@ def test_429_e_outras_falhas_misturadas_usam_cada_uma_sua_espera(cfg):
         cfg, [RespostaHTTP(429), requests.Timeout("lento"), RespostaHTTP(429), RespostaHTTP(200, b"{}")]
     )
     c.buscar("/v1/contratos", {}, "ctx")
-    assert esperas == [30, 0.5, 4, 0.5, 120, 0.5]
+    assert esperas == [30, cfg.pausa, 4, cfg.pausa, 120, cfg.pausa]
 
 
 def test_cada_nova_tentativa_gera_aviso_no_log(cfg, caplog):
@@ -138,4 +138,4 @@ def test_pausa_entre_chamadas(cfg):
     c, _, esperas = cliente(cfg, [RespostaHTTP(200, b"{}"), RespostaHTTP(200, b"{}")])
     c.buscar("/v1/contratos", {}, "ctx")
     c.buscar("/v1/contratos", {}, "ctx")
-    assert esperas == [0.5]
+    assert esperas == [cfg.pausa]

@@ -14,7 +14,7 @@ timeout_segundos = 60
 novas_tentativas = 3
 esperas_segundos = [2, 4, 8]  # tempo esgotado, erro de conexão e HTTP 5xx
 esperas_429_segundos = [30, 60, 120]  # HTTP 429 sem cabeçalho Retry-After
-pausa_segundos = 0.5
+pausa_segundos = 3  # limite estimado da API: ~20 chamadas/min (docs/analise-carga-completa.md)
 user_agent = "compras-fab-pncp (https://github.com/LuisFernandoLFAM/compras-fab-pncp)"
 
 [modalidades]
