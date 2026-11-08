@@ -1,0 +1,26 @@
+{
+  "data": [
+    {
+      "numeroControlePNCP": "00394429000100-2-000050/2026",
+      "numeroControlePncpCompra": "00394429000100-1-000102/2025",
+      "numeroContratoEmpenho": "050/2026",
+      "anoContrato": 2026,
+      "tipoContrato": {"id": 1, "nome": "Contrato (termo inicial)"},
+      "objetoContrato": "Serviço de manutenção predial",
+      "valorInicial": 96500.0,
+      "valorGlobal": 96500.0,
+      "dataAssinatura": "2026-02-20",
+      "dataPublicacaoPncp": "2026-02-25T11:30:00",
+      "dataAtualizacao": "2026-02-25T11:30:00",
+      "orgaoEntidade": {"cnpj": "00394429000100", "razaoSocial": "COMANDO DA AERONAUTICA"},
+      "tipoPessoa": "PJ",
+      "niFornecedor": "11222333000144",
+      "nomeRazaoSocialFornecedor": "EMPRESA FICTÍCIA LTDA"
+    }
+  ],
+  "totalRegistros": 1,
+  "totalPaginas": 1,
+  "numeroPagina": 1,
+  "paginasRestantes": 0,
+  "empty": false
+}

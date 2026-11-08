@@ -13,3 +13,9 @@ dev = [
     "pytest>=9.2.0",
     "ruff>=0.17.4",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "test"]
+testpaths = ["test"]
+markers = ["integracao: chama a API real do PNCP; fora da execução padrão"]
+addopts = "-m 'not integracao'"

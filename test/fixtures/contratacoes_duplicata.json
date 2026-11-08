@@ -1,0 +1,21 @@
+{
+  "data": [
+    {
+      "numeroControlePNCP": "00394429000100-1-000201/2026",
+      "modalidadeId": 8,
+      "objetoCompra": "Dispensa fictícia",
+      "valorTotalEstimado": 4500.0
+    },
+    {
+      "numeroControlePNCP": "00394429000100-1-000201/2026",
+      "modalidadeId": 8,
+      "objetoCompra": "Dispensa fictícia",
+      "valorTotalEstimado": 4500.0
+    }
+  ],
+  "totalRegistros": 2,
+  "totalPaginas": 1,
+  "numeroPagina": 1,
+  "paginasRestantes": 0,
+  "empty": false
+}

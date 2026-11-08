@@ -1,0 +1,36 @@
+# Configuração da ingestão (spec: specs/ingestao.md, decisão 9).
+# Trocar o CNPJ faz o pipeline servir para qualquer órgão do PNCP.
+
+[orgao]
+cnpj = "00394429000100"  # Comando da Aeronáutica
+
+[periodo]
+data_inicial = 2023-01-01
+
+[api]
+url_base = "https://pncp.gov.br/api/consulta"
+tamanho_pagina = 50
+timeout_segundos = 60
+novas_tentativas = 3
+esperas_segundos = [2, 4, 8]  # tempo esgotado, erro de conexão e HTTP 5xx
+esperas_429_segundos = [30, 60, 120]  # HTTP 429 sem cabeçalho Retry-After
+pausa_segundos = 0.5
+user_agent = "compras-fab-pncp (https://github.com/LuisFernandoLFAM/compras-fab-pncp)"
+
+[modalidades]
+codigos = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+
+[endpoints.contratacoes]
+publicacao = "/v1/contratacoes/publicacao"
+filtro_cnpj = "cnpj"
+filtro_modalidade = "codigoModalidadeContratacao"
+chave = "numeroControlePNCP"
+
+[endpoints.contratos]
+publicacao = "/v1/contratos"
+filtro_cnpj = "cnpjOrgao"
+chave = "numeroControlePNCP"
+
+[caminhos]
+landing = "data/landing"
+banco = "compras_fab.duckdb"
