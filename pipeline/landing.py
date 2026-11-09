@@ -8,6 +8,7 @@ from pathlib import Path
 from pipeline.processamento import nome_arquivo_pagina
 
 MANIFESTO = "_manifesto.json"
+ESPELHO = "_execucoes.jsonl"
 
 
 def salvar_pagina(pasta: Path, pagina: int, corpo: bytes) -> Path:
@@ -31,6 +32,42 @@ def ler_manifesto(pasta: Path) -> dict | None:
     if not arquivo.exists():
         return None
     return json.loads(arquivo.read_text(encoding="utf-8"))
+
+
+def listar_janelas(raiz: Path) -> tuple[list[dict], list[Path]]:
+    """Devolve (manifestos das janelas completas, pastas de janelas sem manifesto)."""
+    if not raiz.exists():
+        return [], []
+    manifestos, incompletas = [], []
+    for pasta in sorted(p for p in raiz.rglob("janela=*") if p.is_dir()):
+        manifesto = ler_manifesto(pasta)
+        if manifesto is None:
+            incompletas.append(pasta)
+        else:
+            manifestos.append(manifesto)
+    return manifestos, incompletas
+
+
+def acrescentar_execucao(raiz: Path, execucao: dict) -> None:
+    """Acrescenta uma linha ao espelho das execuções (decisão 11)."""
+    raiz.mkdir(parents=True, exist_ok=True)
+    with open(raiz / ESPELHO, "a", encoding="utf-8") as f:
+        f.write(json.dumps(execucao, ensure_ascii=False) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def ler_execucoes(raiz: Path) -> list[dict]:
+    """Execuções do espelho, na ordem da primeira aparição; vale a última linha de cada id."""
+    arquivo = raiz / ESPELHO
+    if not arquivo.exists():
+        return []
+    execucoes: dict[str, dict] = {}
+    for linha in arquivo.read_text(encoding="utf-8").splitlines():
+        if linha.strip():
+            execucao = json.loads(linha)
+            execucoes[execucao["execucao_id"]] = execucao
+    return list(execucoes.values())
 
 
 def limpar_janela(pasta: Path) -> None:

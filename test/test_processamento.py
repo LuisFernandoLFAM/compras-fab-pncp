@@ -13,9 +13,11 @@ from pipeline.processamento import (
     caminho_janela,
     classificar_status,
     conferir_janela,
+    escolher_modo,
     espera_429,
     hash_registro,
     ids_retomaveis,
+    janela_incremental,
     janela_ja_concluida,
     janelas_mensais,
     ler_pagina,
@@ -23,7 +25,9 @@ from pipeline.processamento import (
     montar_manifesto,
     montar_parametros,
     nome_endpoint,
+    ordem_reconstrucao,
     texto_registro,
+    ultimo_dados_ate,
 )
 
 # --- espera após HTTP 429 ----------------------------------------------------
@@ -285,27 +289,130 @@ def test_manifesto_de_janela_vazia():
     assert manifesto["paginas"] == 0
 
 
+D1, D2, D3 = date(2026, 11, 6), date(2026, 11, 13), date(2026, 11, 20)
+
+
 def test_ids_retomaveis_sem_historico():
     assert ids_retomaveis([]) == set()
 
 
 def test_ids_retomaveis_apos_falhas_da_completa():
-    historico = [("e1", "completa", "falha"), ("e2", "completa", "falha")]
+    historico = [("e1", "completa", "falha", D1), ("e2", "completa", "falha", D1)]
     assert ids_retomaveis(historico) == {"e1", "e2"}
 
 
 def test_ids_retomaveis_zera_apos_sucesso():
-    historico = [("e1", "completa", "falha"), ("e2", "completa", "sucesso")]
+    historico = [("e1", "completa", "falha", D1), ("e2", "completa", "sucesso", D1)]
     assert ids_retomaveis(historico) == set()
 
 
 def test_ids_retomaveis_so_conta_falhas_posteriores_ao_sucesso():
     historico = [
-        ("e1", "completa", "falha"),
-        ("e2", "completa", "sucesso"),
-        ("e3", "completa", "falha"),
+        ("e1", "completa", "falha", D1),
+        ("e2", "completa", "sucesso", D1),
+        ("e3", "completa", "falha", D2),
     ]
     assert ids_retomaveis(historico) == {"e3"}
+
+
+def test_ids_retomaveis_inclui_incremental_que_falhou():
+    historico = [("e1", "completa", "sucesso", D1), ("e2", "incremental", "falha", D2)]
+    assert ids_retomaveis(historico) == {"e2"}
+
+
+def test_reconstrucao_nao_interfere_na_retomada():
+    historico = [
+        ("e1", "completa", "sucesso", D1),
+        ("e2", "incremental", "falha", D2),
+        ("e3", "reconstrucao", "sucesso", D1),
+        ("e4", "reconstrucao", "falha", D1),
+    ]
+    assert ids_retomaveis(historico) == {"e2"}
+
+
+# --- modo e janela do incremental --------------------------------------------
+
+
+def test_ultimo_dados_ate_ignora_falhas_e_dados_ate_vazio():
+    historico = [
+        ("e1", "completa", "sucesso", D1),
+        ("e2", "incremental", "falha", D3),
+        ("e3", "reconstrucao", "sucesso", None),
+    ]
+    assert ultimo_dados_ate(historico) == D1
+    assert ultimo_dados_ate([]) is None
+
+
+@pytest.mark.parametrize(
+    ("historico", "completa", "reconstruir", "modo"),
+    [
+        ([], False, False, "completa"),
+        ([("e1", "completa", "falha", D1)], False, False, "completa"),
+        ([("e1", "completa", "sucesso", D1)], False, False, "incremental"),
+        ([("e1", "completa", "sucesso", D1)], True, False, "completa"),
+        ([("e1", "completa", "sucesso", D1)], False, True, "reconstrucao"),
+        ([], False, True, "reconstrucao"),
+        # Reconstrução sem histórico (dados_ate vazio) não habilita o incremental.
+        ([("e1", "reconstrucao", "sucesso", None)], False, False, "completa"),
+    ],
+)
+def test_escolher_modo(historico, completa, reconstruir, modo):
+    assert escolher_modo(historico, completa, reconstruir) == modo
+
+
+def test_janela_incremental_comeca_no_dia_seguinte_ao_ultimo_sucesso():
+    historico = [
+        ("e1", "completa", "sucesso", D1),
+        ("e2", "incremental", "falha", D2),  # falha não avança a data
+    ]
+    assert janela_incremental(historico, D3) == (date(2026, 11, 7), D3)
+
+
+def test_janela_incremental_usa_o_dados_ate_mais_recente():
+    historico = [("e1", "completa", "sucesso", D1), ("e2", "incremental", "sucesso", D2)]
+    assert janela_incremental(historico, D3) == (date(2026, 11, 14), D3)
+
+
+def test_janela_incremental_de_um_dia():
+    historico = [("e1", "completa", "sucesso", D1)]
+    assert janela_incremental(historico, date(2026, 11, 7)) == (date(2026, 11, 7), date(2026, 11, 7))
+
+
+def test_janela_incremental_sem_nada_a_consultar():
+    historico = [("e1", "incremental", "sucesso", D2)]
+    assert janela_incremental(historico, D2) is None  # duas vezes no mesmo dia
+    assert janela_incremental(historico, D1) is None  # --ate anterior ao último dados_ate
+
+
+def test_janela_incremental_longa_e_dividida_em_meses():
+    historico = [("e1", "completa", "sucesso", date(2026, 9, 20))]
+    inicio, fim = janela_incremental(historico, date(2026, 11, 6))
+    assert janelas_mensais(inicio, fim) == [
+        (date(2026, 9, 21), date(2026, 9, 30)),
+        (date(2026, 10, 1), date(2026, 10, 31)),
+        (date(2026, 11, 1), date(2026, 11, 6)),
+    ]
+
+
+def test_janela_incremental_sem_sucesso_anterior_e_erro():
+    with pytest.raises(ValueError):
+        janela_incremental([("e1", "completa", "falha", D1)], D2)
+
+
+def test_ordem_reconstrucao_segue_a_extracao():
+    manifestos = [
+        {"concluido_em": "2026-11-08T10:00:00-03:00", "endpoint": "/v1/contratos",
+         "modalidade": None, "janela_inicio": "2026-11-07"},
+        {"concluido_em": "2026-11-07T23:30:00-03:00", "endpoint": "/v1/contratos",
+         "modalidade": None, "janela_inicio": "2026-10-01"},
+        # Mesmo instante em outro fuso: 02:20 UTC = 23:20 em Brasília, a mais antiga.
+        {"concluido_em": "2026-11-08T02:20:00+00:00", "endpoint": "/v1/contratacoes/publicacao",
+         "modalidade": 6, "janela_inicio": "2026-10-01"},
+    ]
+    ordem = [m["concluido_em"] for m in ordem_reconstrucao(manifestos)]
+    assert ordem == [
+        "2026-11-08T02:20:00+00:00", "2026-11-07T23:30:00-03:00", "2026-11-08T10:00:00-03:00"
+    ]
 
 
 def test_janela_ja_concluida():

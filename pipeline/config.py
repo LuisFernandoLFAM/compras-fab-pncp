@@ -11,7 +11,8 @@ RAIZ_PROJETO = Path(__file__).resolve().parent.parent
 @dataclass(frozen=True)
 class Endpoint:
     tabela: str  # nome da tabela em raw (contratacoes ou contratos)
-    publicacao: str
+    publicacao: str  # carga completa
+    atualizacao: str  # incremental
     filtro_cnpj: str
     filtro_modalidade: str | None  # None quando o endpoint não exige modalidade
     chave: str
@@ -50,6 +51,7 @@ def carregar_config(caminho: Path = RAIZ_PROJETO / "config.toml") -> Config:
         Endpoint(
             tabela=nome,
             publicacao=ep["publicacao"],
+            atualizacao=ep["atualizacao"],
             filtro_cnpj=ep["filtro_cnpj"],
             filtro_modalidade=ep.get("filtro_modalidade"),
             chave=ep["chave"],

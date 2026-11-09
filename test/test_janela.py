@@ -1,5 +1,6 @@
 """Download, conferência e manifesto de uma janela, com respostas falsas e landing temporária."""
 
+import json
 from datetime import date
 
 import pytest
@@ -130,15 +131,50 @@ def test_carga_na_raw_e_idempotente(cfg):
     cliente = ClienteFalso([ok("contratacoes_pagina_1.json"), ok("contratacoes_pagina_2.json")])
     manifesto, _ = processar_janela(cliente, cfg, endpoint, 6, INICIO, FIM, "e1", set())
 
-    assert carregar_janela(con, cfg, endpoint, manifesto, "e1") == (3, 0)
-    assert carregar_janela(con, cfg, endpoint, manifesto, "e2") == (0, 3)
+    assert carregar_janela(con, cfg, endpoint, manifesto) == (3, 0)
+    assert carregar_janela(con, cfg, endpoint, manifesto) == (0, 3)
 
-    origem, extraido_em = con.execute(
-        "SELECT _arquivo_origem, _extraido_em FROM raw.contratacoes WHERE _pagina = '2'"
-    ).fetchone()
+    origem, extraido_em, execucao_id = con.execute(
+        "SELECT _arquivo_origem, _extraido_em, _execucao_id FROM raw.contratacoes WHERE _pagina = '2'"
+    ).fetchall()[0]
     assert origem.endswith("modalidade=06/janela=2026-03-01_2026-03-31/pagina_002.json")
     assert not origem.startswith("/") and ":" not in origem
     assert extraido_em == "2026-11-07T10:00:00-03:00"
+    assert execucao_id == "e1"  # a execução que extraiu, lida do manifesto
+
+
+def test_incremental_usa_endpoint_de_atualizacao_e_acrescenta_versoes(cfg):
+    con = banco.conectar(":memory:")
+    banco.criar_tabelas(con, ["contratacoes", "contratos"])
+    endpoint = contratos(cfg)
+
+    # Carga completa: uma versão do contrato, pelo endpoint de publicação.
+    manifesto, _ = processar_janela(
+        ClienteFalso([ok("contratos_pagina_unica.json")]), cfg, endpoint, None,
+        INICIO, FIM, "e1", set(),
+    )
+    assert carregar_janela(con, cfg, endpoint, manifesto) == (1, 0)
+
+    # Incremental: o mesmo contrato com valor alterado, pelo endpoint de atualização.
+    pagina = json.loads(ok("contratos_pagina_unica.json").corpo)
+    pagina["data"][0]["valorGlobal"] = 120000.0
+    alterado = Resposta(ClasseResposta.SUCESSO, json.dumps(pagina).encode(), "2026-11-08T10:00:00-03:00")
+    cliente = ClienteFalso([alterado])
+    manifesto, _ = processar_janela(
+        cliente, cfg, endpoint, None, INICIO, FIM, "e2", set(), endpoint.atualizacao
+    )
+
+    assert manifesto["endpoint"] == "/v1/contratos/atualizacao"
+    assert caminho_janela(
+        cfg.landing, endpoint.atualizacao, cfg.cnpj, None, INICIO, FIM
+    ).as_posix().endswith("contratos_atualizacao/cnpj=00394429000100/janela=2026-03-01_2026-03-31")
+    assert carregar_janela(con, cfg, endpoint, manifesto) == (1, 0)
+
+    linhas = con.execute(
+        "SELECT _endpoint, _execucao_id FROM raw.contratos ORDER BY _extraido_em"
+    ).fetchall()
+    # A versão antiga continua lá; a nova foi acrescentada.
+    assert linhas == [("/v1/contratos", "e1"), ("/v1/contratos/atualizacao", "e2")]
 
 
 def test_mesma_versao_com_chaves_em_outra_ordem_nao_vira_linha_nova():

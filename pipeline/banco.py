@@ -19,6 +19,20 @@ COLUNAS_RAW = (
     "_execucao_id",
 )
 
+COLUNAS_EXECUCOES = (
+    "execucao_id",
+    "modo",
+    "inicio",
+    "fim",
+    "status",
+    "dados_ate",
+    "chamadas_api",
+    "linhas_novas",
+    "linhas_ja_existentes",
+    "mb_landing",
+    "mensagem_erro",
+)
+
 
 def conectar(caminho: Path) -> duckdb.DuckDBPyConnection:
     return duckdb.connect(str(caminho))
@@ -69,14 +83,53 @@ def inserir_linhas(con: duckdb.DuckDBPyConnection, tabela: str, linhas: list[dic
     return novas, len(linhas) - novas
 
 
-def historico_execucoes(con: duckdb.DuckDBPyConnection) -> list[tuple[str, str, str]]:
+def esvaziar_raw(con: duckdb.DuckDBPyConnection, tabelas: list[str]) -> None:
+    for tabela in tabelas:
+        con.execute(f"DELETE FROM raw.{tabela}").fetchall()
+
+
+def contar_linhas(con: duckdb.DuckDBPyConnection, tabela: str) -> int:
+    [(total,)] = con.execute(f"SELECT count(*) FROM raw.{tabela}").fetchall()
+    return total
+
+
+def historico_execucoes(con: duckdb.DuckDBPyConnection) -> list[tuple[str, str, str, date | None]]:
     return con.execute(
-        "SELECT execucao_id, modo, status FROM raw.execucoes ORDER BY inicio"
+        "SELECT execucao_id, modo, status, dados_ate FROM raw.execucoes ORDER BY inicio"
     ).fetchall()
 
 
+def ler_execucoes(con: duckdb.DuckDBPyConnection, execucao_id: str | None = None) -> list[dict]:
+    """Execuções em formato JSON (datas como texto), para o espelho em data/landing."""
+    filtro = "WHERE execucao_id = ?" if execucao_id else ""
+    linhas = con.execute(
+        f"""
+        SELECT execucao_id, modo, strftime(inicio, '%Y-%m-%dT%H:%M:%S.%f%z'),
+               strftime(fim, '%Y-%m-%dT%H:%M:%S.%f%z'), status, dados_ate::VARCHAR,
+               chamadas_api, linhas_novas, linhas_ja_existentes, mb_landing, mensagem_erro
+        FROM raw.execucoes {filtro} ORDER BY inicio
+        """,
+        [execucao_id] if execucao_id else [],
+    ).fetchall()
+    return [dict(zip(COLUNAS_EXECUCOES, linha, strict=True)) for linha in linhas]
+
+
+def substituir_execucoes(con: duckdb.DuckDBPyConnection, execucoes: list[dict]) -> None:
+    """Recria raw.execucoes a partir do espelho."""
+    con.execute("DELETE FROM raw.execucoes").fetchall()
+    for e in execucoes:
+        con.execute(
+            """
+            INSERT INTO raw.execucoes VALUES (?, ?, CAST(? AS TIMESTAMPTZ), CAST(? AS TIMESTAMPTZ),
+                ?, CAST(? AS DATE), ?, ?, ?, ?, ?)
+            """,
+            [e[c] for c in COLUNAS_EXECUCOES],
+        ).fetchall()
+
+
 def abrir_execucao(
-    con: duckdb.DuckDBPyConnection, execucao_id: str, modo: str, inicio: datetime, dados_ate: date
+    con: duckdb.DuckDBPyConnection, execucao_id: str, modo: str, inicio: datetime,
+    dados_ate: date | None,
 ) -> None:
     """Registra a execução já como falha: se o processo morrer, o registro continua verdadeiro."""
     con.execute(
@@ -85,7 +138,7 @@ def abrir_execucao(
             'execução em andamento ou interrompida')
         """,
         [execucao_id, modo, inicio, dados_ate],
-    )
+    ).fetchall()
 
 
 def fechar_execucao(
@@ -93,6 +146,7 @@ def fechar_execucao(
     execucao_id: str,
     *,
     status: str,
+    dados_ate: date | None,
     chamadas_api: int,
     linhas_novas: int,
     linhas_ja_existentes: int,
@@ -102,13 +156,14 @@ def fechar_execucao(
     con.execute(
         """
         UPDATE raw.execucoes
-        SET fim = ?, status = ?, chamadas_api = ?, linhas_novas = ?,
+        SET fim = ?, status = ?, dados_ate = ?, chamadas_api = ?, linhas_novas = ?,
             linhas_ja_existentes = ?, mb_landing = ?, mensagem_erro = ?
         WHERE execucao_id = ?
         """,
         [
             datetime.now().astimezone(),
             status,
+            dados_ate,
             chamadas_api,
             linhas_novas,
             linhas_ja_existentes,
@@ -116,4 +171,4 @@ def fechar_execucao(
             mensagem_erro,
             execucao_id,
         ],
-    )
+    ).fetchall()

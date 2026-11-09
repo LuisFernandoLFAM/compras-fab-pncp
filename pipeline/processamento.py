@@ -217,22 +217,71 @@ def montar_manifesto(
     }
 
 
-def ids_retomaveis(historico: list[tuple[str, str, str]]) -> set[str]:
+# Histórico de execuções: tuplas (execucao_id, modo, status, dados_ate) em ordem
+# cronológica, como em raw.execucoes.
+Historico = list[tuple[str, str, str, date | None]]
+
+MODOS_COM_API = ("completa", "incremental")
+
+
+def ids_retomaveis(historico: Historico) -> set[str]:
     """Execuções cujas janelas concluídas podem ser aproveitadas numa retomada.
 
-    `historico` são tuplas (execucao_id, modo, status) em ordem cronológica. São
-    as cargas completas que falharam depois da última execução com sucesso; se a
-    última execução terminou com sucesso, nada é aproveitado e a carga completa
-    baixa tudo de novo.
+    São as cargas completas e incrementais que falharam depois da última carga
+    completa ou incremental com sucesso. Depois de um sucesso, nada é
+    aproveitado. A reconstrução não mexe na landing e é ignorada.
     """
     ids: set[str] = set()
-    for execucao_id, modo, status in historico:
+    for execucao_id, modo, status, _ in historico:
+        if modo not in MODOS_COM_API:
+            continue
         if status == "sucesso":
             ids = set()
-        elif modo == "completa":
+        else:
             ids.add(execucao_id)
     return ids
 
 
 def janela_ja_concluida(manifesto: dict | None, retomaveis: set[str]) -> bool:
     return manifesto is not None and manifesto.get("execucao_id") in retomaveis
+
+
+def ultimo_dados_ate(historico: Historico) -> date | None:
+    """`dados_ate` da última execução com sucesso que o tenha preenchido."""
+    for _, _, status, dados_ate in reversed(historico):
+        if status == "sucesso" and dados_ate is not None:
+            return dados_ate
+    return None
+
+
+def escolher_modo(historico: Historico, completa: bool, reconstruir: bool) -> str:
+    if reconstruir:
+        return "reconstrucao"
+    if completa or ultimo_dados_ate(historico) is None:
+        return "completa"
+    return "incremental"
+
+
+def janela_incremental(historico: Historico, ate: date) -> tuple[date, date] | None:
+    """Período do incremental: do dia seguinte ao último `dados_ate` até `ate`.
+
+    Devolve None quando não há nada a consultar (início depois do fim).
+    """
+    anterior = ultimo_dados_ate(historico)
+    if anterior is None:
+        raise ValueError("incremental sem execução anterior com sucesso")
+    inicio = anterior + timedelta(days=1)
+    return None if inicio > ate else (inicio, ate)
+
+
+def ordem_reconstrucao(manifestos: list[dict]) -> list[dict]:
+    """Ordena as janelas pela ordem em que foram extraídas."""
+    return sorted(
+        manifestos,
+        key=lambda m: (
+            datetime.fromisoformat(m["concluido_em"]),
+            m["endpoint"],
+            m["modalidade"] or 0,
+            m["janela_inicio"],
+        ),
+    )
