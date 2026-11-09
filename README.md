@@ -81,7 +81,7 @@ A primeira medição da carga completa deu 9h38min, porque o computador suspende
 
 ## Onde a IA errou (e como percebi)
 
-**"Zero pregões em 2025".** Na exploração, um script de teste transformou uma consulta que falhou em "zero pregões em 2025", quando eram 2.012. Percebi porque o zero destoava dos outros anos. Isso virou a regra "erro nunca vira zero" da decisão 6: qualquer falha que não seja vazio legítimo para a execução.
+**"Zero pregões em 2025".** Na exploração, um script de teste transformou uma consulta que falhou em "zero pregões em 2025", quando eram 2.012. Percebi porque o zero destoava dos outros anos. Isso virou a regra "erro nunca vira zero" da decisão 6: qualquer falha que não seja vazio legítimo interrompe a execução.
 
 **Esperas curtas para o HTTP 429.** A spec previa esperas de 2, 4 e 8 segundos para falhas temporárias, e a primeira carga real parou num HTTP 429 persistente. A spec foi corrigida antes do código, com esperas próprias para o 429 (o `Retry-After` da API ou 30, 60 e 120 segundos).
 
