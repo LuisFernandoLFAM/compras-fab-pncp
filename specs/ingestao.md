@@ -63,9 +63,12 @@ Ao terminar e conferir uma janela, a ingestão grava nela um `_manifesto.json` c
 ### 5. Reexecução: carga completa na primeira vez, incremental pela data de atualização depois
 
 - **Primeira execução** (nenhuma execução com sucesso registrada): carga completa pelos endpoints de publicação, mês a mês, de 01/01/2023 até a data final.
-- **Execuções seguintes:** incremental pelos endpoints de atualização, do dia seguinte ao fim da última execução com sucesso até a data final.
-- **Carga completa forçada:** disponível por parâmetro.
-- **Reconstrução:** recarregar a camada bruta a partir da landing zone, sem nenhuma chamada à API, disponível por parâmetro.
+- **Execuções seguintes:** incremental pelos endpoints de atualização, do dia seguinte ao `dados_ate` da última execução com sucesso até a data final, em janelas de no máximo um mês e com as 13 modalidades para contratações. Valem as mesmas regras de landing zone, manifesto, retomada, erros e conferência da carga completa.
+- **Nada a consultar:** se o início do incremental cair depois da data final (por exemplo, dois incrementais no mesmo dia, ou `--ate` anterior ao último `dados_ate`), a execução termina com sucesso, sem chamadas, e mantém o `dados_ate` anterior. O `dados_ate` nunca retrocede.
+- **Carga completa forçada:** disponível por parâmetro (`--completa`).
+- **Reconstrução:** recarregar a camada bruta a partir da landing zone, sem nenhuma chamada à API, disponível por parâmetro (`--reconstruir`; ver decisão 11). Não pode ser combinada com `--completa` nem com `--ate`.
+
+**Retomada:** uma janela com manifesto só é aproveitada se foi concluída por uma carga completa ou incremental que falhou depois da última carga completa ou incremental com sucesso. Depois de um sucesso, a carga completa forçada baixa tudo de novo, porque o dado é vivo. Janelas de publicação e de atualização ficam em pastas separadas (`contratacoes_publicacao/`, `contratacoes_atualizacao/` etc.), então os modos não se misturam. A reconstrução não mexe na landing e por isso não interfere na retomada.
 
 **Motivo:** o dado do PNCP é vivo. No 1º semestre de 2026, 19% das contratações e 42% dos contratos da FAB foram atualizados depois de publicados (2% e 12%, respectivamente, mais de 6 meses depois). Baixar só os meses novos congelaria o passado; refazer tudo a cada execução repetiria centenas de chamadas.
 
@@ -137,6 +140,27 @@ A parte que **busca** (faz a chamada HTTP) fica separada da parte que **processa
 
 Os testes unitários usam respostas falsas em `test/fixtures/` e nunca chamam a API nem abrem o banco do projeto. Um teste de integração separado (marcado como `integracao` e fora da execução padrão) confere que registros recém-publicados aparecem no endpoint de atualização.
 
+### 11. Banco descartável: espelho das execuções e reconstrução
+
+A landing zone é a fonte da verdade, e o `compras_fab.duckdb` é derivado dela. Apagar o banco e rodar `--reconstruir` deixa tudo pronto para o próximo incremental, sem refazer a carga completa.
+
+**Espelho das execuções:** cada execução é espelhada em `data/landing/_execucoes.jsonl`, com uma linha ao começar (`status = falha`, "execução em andamento ou interrompida") e outra ao terminar. Vale a última linha de cada `execucao_id`. No início de cada execução, as execuções do banco que faltarem no espelho são acrescentadas a ele (isso cobre as execuções anteriores a esta regra).
+
+**Reconstrução** (`--reconstruir`), sem nenhuma chamada à API:
+
+1. Recria `raw.execucoes` a partir do espelho.
+2. Recria `raw.contratacoes` e `raw.contratos` a partir das janelas com manifesto do CNPJ configurado, dos endpoints de publicação e de atualização. As janelas são carregadas na ordem em que foram extraídas (`concluido_em` do manifesto): quando a mesma versão aparece em mais de um arquivo, fica a primeira observação, como no fluxo original. Janelas sem manifesto são ignoradas, com aviso no log.
+3. Mantém o `_execucao_id` original de cada linha (a execução que extraiu o registro, lida do manifesto), de modo que a camada bruta reconstruída fica igual à original.
+4. Faz tudo numa transação: se a reconstrução falhar no meio, o banco anterior fica intacto.
+5. Registra a própria execução com `modo = reconstrucao` e `dados_ate` igual ao da última execução com sucesso, para não deslocar o próximo incremental. Sem histórico, o `dados_ate` fica vazio.
+
+**Motivo:** o banco pode ser corrompido, apagado ou recriado com outra estrutura sem custo de API. Sem o espelho, perder o banco apagaria também `raw.execucoes`, e a execução seguinte refaria a carga completa (cerca de 85 minutos ativos).
+
+**Limitações:**
+
+- A carga completa forçada sobrescreve as pastas de publicação. Versões que só existiam nesses arquivos não podem ser reconstruídas depois (continuam no banco enquanto ele existir).
+- Perder a pasta `data/landing/` perde também o espelho: aí só resta a carga completa pela API.
+
 ## Estrutura da camada bruta
 
 Schema `raw` no arquivo `compras_fab.duckdb`.
@@ -153,7 +177,7 @@ Schema `raw` no arquivo `compras_fab.duckdb`.
 | `_pagina` | página da resposta |
 | `_arquivo_origem` | caminho do arquivo na landing zone |
 | `_extraido_em` | data e hora da chamada à API |
-| `_execucao_id` | execução que gravou a linha |
+| `_execucao_id` | execução que extraiu o registro da API |
 
 Todas as colunas são texto, seguindo o princípio da camada bruta.
 
@@ -165,14 +189,16 @@ Todas as colunas são texto, seguindo o princípio da camada bruta.
 | `modo` | `completa`, `incremental` ou `reconstrucao` |
 | `inicio`, `fim` | data e hora de início e fim |
 | `status` | `sucesso` ou `falha` |
-| `dados_ate` | data final dos dados consultados |
+| `dados_ate` | data final dos dados consultados (na reconstrução e no incremental sem nada a consultar, repete o da última execução com sucesso) |
 | `chamadas_api` | número de chamadas feitas |
 | `linhas_novas` | linhas gravadas na camada bruta |
 | `linhas_ja_existentes` | versões descartadas por já existirem |
 | `mb_landing` | tamanho da landing zone ao final |
 | `mensagem_erro` | vazio em caso de sucesso |
 
-A data de partida do próximo incremental é o `dados_ate` da última execução com `status = sucesso`. Execução que falha não avança essa data.
+A data de partida do próximo incremental é o dia seguinte ao `dados_ate` da última execução com `status = sucesso` e `dados_ate` preenchido. Execução que falha não avança essa data.
+
+`raw.execucoes` é espelhada em `data/landing/_execucoes.jsonl` (decisão 11).
 
 ## Como rodar
 
@@ -191,8 +217,9 @@ Recomendação: desative a suspensão do computador durante a carga completa. Na
 - [ ] Todas as janelas têm manifesto, e as contagens conferem com a API.
 - [ ] Interromper a carga no meio e rodar de novo retoma das janelas incompletas.
 - [ ] Um incremental logo após a carga completa termina com sucesso.
-- [ ] Dois incrementais seguidos: o segundo grava zero linhas novas.
+- [ ] Dois incrementais seguidos: o segundo grava zero linhas novas. (No mesmo dia, o segundo não tem período a consultar; a idempotência pelo hash é coberta pelos testes unitários e pela reconstrução.)
 - [ ] A reconstrução gera a mesma quantidade de linhas, sem nenhuma chamada à API.
+- [ ] Apagar o `compras_fab.duckdb` e rodar `--reconstruir` deixa o próximo incremental partindo do `dados_ate` correto, sem refazer a carga completa.
 - [ ] Os testes unitários das funções da decisão 10 passam sem internet.
 - [ ] O README tem a seção "Custo e eficiência" com os números medidos (tempo, chamadas, MB) da carga completa, do incremental e da reconstrução.
 
