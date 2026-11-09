@@ -1,0 +1,23 @@
+{
+  "data": [
+    {
+      "numeroControlePNCP": "00394429000100-1-000103/2026",
+      "anoCompra": 2026,
+      "sequencialCompra": 103,
+      "modalidadeId": 6,
+      "modalidadeNome": "Pregão - Eletrônico",
+      "processo": "67100.000103/2026-33",
+      "objetoCompra": "Aquisição de combustível",
+      "valorTotalEstimado": 0.0,
+      "dataPublicacaoPncp": "2026-03-28T08:40:00",
+      "dataAtualizacao": "2026-03-28T08:40:00",
+      "orgaoEntidade": {"cnpj": "00394429000100", "razaoSocial": "COMANDO DA AERONAUTICA"},
+      "unidadeOrgao": {"codigoUnidade": "120003", "nomeUnidade": "UNIDADE FICTÍCIA C", "ufSigla": "RJ"}
+    }
+  ],
+  "totalRegistros": 3,
+  "totalPaginas": 2,
+  "numeroPagina": 2,
+  "paginasRestantes": 0,
+  "empty": false
+}

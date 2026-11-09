@@ -1,0 +1,37 @@
+{
+  "data": [
+    {
+      "numeroControlePNCP": "00394429000100-1-000101/2026",
+      "anoCompra": 2026,
+      "sequencialCompra": 101,
+      "modalidadeId": 6,
+      "modalidadeNome": "Pregão - Eletrônico",
+      "processo": "67100.000101/2026-11",
+      "objetoCompra": "Aquisição de material de expediente",
+      "valorTotalEstimado": 15230.5,
+      "dataPublicacaoPncp": "2026-03-04T10:15:00",
+      "dataAtualizacao": "2026-03-04T10:15:00",
+      "orgaoEntidade": {"cnpj": "00394429000100", "razaoSocial": "COMANDO DA AERONAUTICA"},
+      "unidadeOrgao": {"codigoUnidade": "120001", "nomeUnidade": "UNIDADE FICTÍCIA A", "ufSigla": "DF"}
+    },
+    {
+      "numeroControlePNCP": "00394429000100-1-000102/2026",
+      "anoCompra": 2026,
+      "sequencialCompra": 102,
+      "modalidadeId": 6,
+      "modalidadeNome": "Pregão - Eletrônico",
+      "processo": "67100.000102/2026-22",
+      "objetoCompra": "Serviço de manutenção predial",
+      "valorTotalEstimado": 98000.0,
+      "dataPublicacaoPncp": "2026-03-10T14:02:00",
+      "dataAtualizacao": "2026-04-01T09:00:00",
+      "orgaoEntidade": {"cnpj": "00394429000100", "razaoSocial": "COMANDO DA AERONAUTICA"},
+      "unidadeOrgao": {"codigoUnidade": "120002", "nomeUnidade": "UNIDADE FICTÍCIA B", "ufSigla": "SP"}
+    }
+  ],
+  "totalRegistros": 3,
+  "totalPaginas": 2,
+  "numeroPagina": 1,
+  "paginasRestantes": 1,
+  "empty": false
+}
