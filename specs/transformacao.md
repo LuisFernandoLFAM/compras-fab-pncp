@@ -279,13 +279,14 @@ Descartar esses contratos tiraria da análise 164 contratos que existem.
 
 ### 9. Contrato de dados: aviso para o que é novo, falha para o que some
 
-O conjunto de campos esperados é o da tabela de/para, mais os 7 campos descartados.
+Os campos conhecidos são os da tabela de/para mais os 7 campos descartados (decisão 3); um campo fora desse conjunto é novo. Dentro dele, só os campos da tabela de/para são obrigatórios: a ausência de um deles faz a transformação falhar, e a de um descartado gera só um aviso.
 
 | Situação | Onde se olha | Resultado |
 | --- | --- | --- |
-| Campo novo, fora do conjunto esperado | Todos os registros da raw | Aviso no log, com o caminho do campo e quantos registros o têm. |
+| Campo novo, fora dos campos conhecidos | Todos os registros da raw | Aviso no log, com o caminho do campo e quantos registros o têm. |
 | Campo descartado (decisão 3) que passa a ter dado | Todos os registros da raw | Aviso no log, com o campo e quantos registros o preenchem. |
-| Campo esperado que some | Registros extraídos pela última rodada de ingestão | A transformação falha, com o campo e quantos registros não o têm. |
+| Campo da tabela de/para que some | Registros extraídos pela última rodada de ingestão | A transformação falha, com o campo e quantos registros não o têm. |
+| Campo descartado que some | Registros extraídos pela última rodada de ingestão | Aviso no log, com o campo e quantos registros não o têm. Os descartados não vão para a refined, então a ausência não pode virar nulo silencioso. |
 
 **Campo que some:** é a chave ausente no JSON, não a chave presente com valor nulo. Na raw de 10/11/2026, todas as chaves de primeiro nível aparecem em todos os registros, com nulo explícito quando não há valor. As chaves dos blocos obrigatórios (`orgaoEntidade`, `unidadeOrgao`, `amparoLegal`, `categoriaProcesso`, `tipoContrato`) são conferidas em todos os registros; as dos blocos opcionais (`orgaoSubRogado` e `unidadeSubRogada` em contratos) e dos elementos de `fontesOrcamentarias`, só quando o bloco ou o elemento existe. Se a última rodada não trouxe nenhum registro, a conferência não se aplica, e o log diz isso.
 
