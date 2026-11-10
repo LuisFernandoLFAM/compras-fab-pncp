@@ -36,6 +36,21 @@ def janelas_mensais(inicio: date, fim: date) -> list[tuple[date, date]]:
     return janelas
 
 
+def janelas_anuais(inicio: date, fim: date) -> list[tuple[date, date]]:
+    """Divide [inicio, fim] em anos civis, recortados nas pontas (sondagem, decisão 1)."""
+    if fim < inicio:
+        raise ValueError(f"data final {fim} anterior à inicial {inicio}")
+    return [
+        (max(inicio, date(ano, 1, 1)), min(fim, date(ano, 12, 31)))
+        for ano in range(inicio.year, fim.year + 1)
+    ]
+
+
+def janelas_dos_anos(janelas: list[tuple[date, date]], anos: set[int]) -> list[tuple[date, date]]:
+    """Mantém só as janelas mensais dos anos em que a sondagem encontrou registros."""
+    return [(inicio, fim) for inicio, fim in janelas if inicio.year in anos]
+
+
 def montar_parametros(
     *,
     inicio: date,
@@ -117,12 +132,14 @@ def nome_endpoint(caminho: str) -> str:
 
 
 def caminho_janela(
-    raiz: Path, endpoint: str, cnpj: str, modalidade: int | None, inicio: date, fim: date
+    raiz: Path, endpoint: str, cnpj: str, modalidade: int | None, inicio: date, fim: date,
+    tipo: str = "janela",
 ) -> Path:
+    """Pasta de uma janela mensal (`janela=...`) ou de uma sondagem anual (`sondagem=...`)."""
     pasta = raiz / nome_endpoint(endpoint) / f"cnpj={cnpj}"
     if modalidade is not None:
         pasta = pasta / f"modalidade={modalidade:02d}"
-    return pasta / f"janela={inicio.isoformat()}_{fim.isoformat()}"
+    return pasta / f"{tipo}={inicio.isoformat()}_{fim.isoformat()}"
 
 
 def nome_arquivo_pagina(pagina: int) -> str:
@@ -200,9 +217,14 @@ def montar_manifesto(
     extracoes: list[dict],
     execucao_id: str,
     concluido_em: str,
+    tipo: str = "janela",
 ) -> dict:
-    """Conteúdo do _manifesto.json. Janela vazia (HTTP 204) tem total 0 e zero páginas."""
+    """Conteúdo do _manifesto.json. Janela vazia (HTTP 204) tem total 0 e zero páginas.
+
+    `tipo` é "janela" (mês carregado na raw) ou "sondagem" (ano, só o total).
+    """
     return {
+        "tipo": tipo,
         "endpoint": endpoint,
         "cnpj": cnpj,
         "modalidade": modalidade,
@@ -222,6 +244,44 @@ def montar_manifesto(
 Historico = list[tuple[str, str, str, date | None]]
 
 MODOS_COM_API = ("completa", "incremental")
+
+
+def id_execucao(rodada_id: str, cnpj: str) -> str:
+    return f"{rodada_id}-{cnpj}"
+
+
+def cnpj_das_execucoes(manifestos: list[dict]) -> dict[str, set[str]]:
+    """CNPJs de cada execução, pelos manifestos que ela gravou na landing."""
+    cnpjs: dict[str, set[str]] = {}
+    for manifesto in manifestos:
+        cnpjs.setdefault(manifesto["execucao_id"], set()).add(manifesto["cnpj"])
+    return cnpjs
+
+
+def completar_execucoes_antigas(
+    execucoes: list[dict], cnpj_por_execucao: dict[str, set[str]], matriz: str
+) -> tuple[list[dict], list[str]]:
+    """Preenche `cnpj` e `rodada_id` das execuções anteriores à lista de CNPJs.
+
+    O CNPJ vem dos manifestos da execução; sem manifesto, fica a matriz.
+    Devolve (execuções completas, ids que ficaram com a matriz por falta de manifesto).
+    """
+    completas, sem_manifesto = [], []
+    for execucao in execucoes:
+        if execucao.get("cnpj"):
+            completas.append(execucao)
+            continue
+        execucao_id = execucao["execucao_id"]
+        cnpjs = cnpj_por_execucao.get(execucao_id, set())
+        if len(cnpjs) > 1:
+            raise ValueError(f"execução antiga {execucao_id} com manifestos de vários CNPJs: {sorted(cnpjs)}")
+        if cnpjs:
+            [cnpj] = cnpjs
+        else:
+            cnpj = matriz
+            sem_manifesto.append(execucao_id)
+        completas.append({**execucao, "cnpj": cnpj, "rodada_id": execucao.get("rodada_id") or execucao_id})
+    return completas, sem_manifesto
 
 
 def ids_retomaveis(historico: Historico) -> set[str]:

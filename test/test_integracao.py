@@ -26,7 +26,7 @@ def chaves(cliente, cfg, endpoint, caminho_api, modalidade, inicio, fim) -> set[
     while numero <= total_paginas:
         parametros = montar_parametros(
             inicio=inicio, fim=fim, pagina=numero, tamanho_pagina=cfg.tamanho_pagina,
-            filtro_cnpj=endpoint.filtro_cnpj, cnpj=cfg.cnpj,
+            filtro_cnpj=endpoint.filtro_cnpj, cnpj=cfg.matriz,
             filtro_modalidade=endpoint.filtro_modalidade, modalidade=modalidade,
         )
         resposta = cliente.buscar(caminho_api, parametros, f"teste de integração, {caminho_api}")

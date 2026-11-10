@@ -27,13 +27,18 @@ class ClienteFalso:
     def __init__(self, respostas: list[Resposta]):
         self.respostas = list(respostas)
         self.parametros: list[dict] = []
+        self.timeouts: list[float | None] = []
 
     @property
     def chamadas(self) -> int:
         return len(self.parametros)
 
-    def buscar(self, endpoint: str, parametros: dict, contexto: str) -> Resposta:
+    def buscar(
+        self, endpoint: str, parametros: dict, contexto: str, timeout: float | None = None,
+        novas_tentativas: int | None = None,
+    ) -> Resposta:
         self.parametros.append(parametros)
+        self.timeouts.append(timeout)
         return self.respostas.pop(0)
 
 
