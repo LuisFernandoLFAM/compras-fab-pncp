@@ -27,11 +27,15 @@ O endpoint de contratações exige uma modalidade por consulta. A ingestão cons
 
 **Custo da decisão:** 7 chamadas a mais por mês consultado, que respondem rápido e sem conteúdo.
 
-**Sondagem anual na carga completa (adotada):** antes de descer mês a mês, a carga completa faz uma consulta por CNPJ, modalidade (ou endpoint de contratos) e ano, lendo só o `totalRegistros`. Onde der zero, os meses daquele ano são pulados; onde houver dado, a carga segue mês a mês. O primeiro ano começa na data inicial, e o último termina na data final da execução. A sondagem segue as regras de erro da decisão 6: falha na sondagem para a execução, nunca vira zero. Ela é a única consulta com janela maior que um mês, porque lê só o total e não percorre páginas. O incremental não faz sondagem.
+**Sondagem anual na carga completa (adotada):** antes de descer mês a mês, a carga completa faz uma consulta por CNPJ, modalidade (ou endpoint de contratos) e ano, lendo só o `totalRegistros`. Onde der zero, os meses daquele ano são pulados; onde houver dado, a carga segue mês a mês. O primeiro ano começa na data inicial, e o último termina na data final da execução. Ela é a única consulta com janela maior que um mês, porque lê só o total e não percorre páginas. O incremental não faz sondagem.
 
 **Motivo da sondagem:** ela tinha sido avaliada e não adotada, porque a carga completa rodava raramente e para um CNPJ só, e evitaria cerca de 280 chamadas vazias. Com as filiais (decisão 12), a carga completa passa a rodar para vários CNPJs, e cada CNPJ novo na lista faz a sua. As filiais publicaram em poucas modalidades e em poucos anos, então quase todas as consultas mês a mês viriam vazias.
 
 **Custo da sondagem:** 14 consultas por ano e por CNPJ (13 modalidades e contratos), 56 por CNPJ no período de 2023 a 2026. Estimativa para uma filial que publicou só em 2024 e 2025 em 3 ou 4 modalidades: cerca de 170 chamadas com sondagem, contra cerca de 660 sem ela.
+
+**Falha na sondagem não para a execução:** a sondagem tem só 1 nova tentativa (configurável no `config.toml`), porque existe um caminho de volta. Se ela falhar mesmo assim, o pipeline registra um aviso no log e consulta aquele ano mês a mês, como se a sondagem tivesse encontrado dado. O manifesto da sondagem registra que o ano foi consultado sem sondagem, com o erro. Isso não fere a regra "erro nunca vira zero" da decisão 6: nenhum mês é pulado, só se perde o atalho. As janelas mensais desse ano seguem as regras normais e param a execução em falha persistente.
+
+**Motivo da queda para mês a mês:** na primeira carga das filiais, a sondagem anual do endpoint de contratos falhou com HTTP 500 persistente duas vezes (filial `00394429019715` em 2023 e filial `00394429018581` em 2024), e houve vários 500 passageiros em outras filiais. Cada tentativa levou cerca de 55 segundos antes do 500, o que indica um limite de tempo do servidor para janelas anuais. Parar a carga inteira por causa de um atalho seria desproporcional, e insistir com 3 novas tentativas custaria cerca de 4 minutos por sondagem.
 
 ### 2. Período: de 01/01/2023 até ontem
 
@@ -86,10 +90,10 @@ O ponto de partida é decidido **por CNPJ** (decisão 12): numa mesma execução
 
 Regras fixas:
 
-- Consultas em janelas de no máximo um mês (janelas de seis meses chegaram a 10 segundos por página e uma consulta travou). A única exceção é a sondagem anual da decisão 1, que lê só a primeira página.
+- Consultas em janelas de no máximo um mês (janelas de seis meses chegaram a 10 segundos por página e uma consulta travou). A única exceção é a sondagem anual da decisão 1, que lê só a primeira página e tem regra própria de falha.
 - Páginas de 50 registros, o máximo aceito pela API.
 - Tempo limite de 60 segundos por chamada.
-- Até 3 novas tentativas, apenas para falhas temporárias: tempo esgotado, erro de conexão, HTTP 429 e HTTP 5xx.
+- Até 3 novas tentativas (1 na sondagem anual), apenas para falhas temporárias: tempo esgotado, erro de conexão, HTTP 429 e HTTP 5xx.
 - Espera antes de cada nova tentativa:
   - HTTP 429 (limite de requisições): o tempo indicado no cabeçalho `Retry-After`, se a resposta trouxer; se não trouxer, 30, 60 e 120 segundos.
   - Demais falhas temporárias: 2, 4 e 8 segundos.
@@ -99,7 +103,7 @@ Regras fixas:
 - As chamadas se identificam com um User-Agent com o nome e o link do projeto.
 - **Erro nunca vira zero.** Qualquer falha que não seja vazio legítimo é tratada como falha.
 
-Falha persistente (depois das novas tentativas) ou qualquer outro código HTTP: a execução **para**, com mensagem dizendo endpoint, modalidade, janela e página. As janelas já concluídas permanecem na landing zone, e a próxima execução retoma a partir das janelas sem manifesto.
+Falha persistente (depois das novas tentativas) ou qualquer outro código HTTP numa janela mensal: a execução **para**, com mensagem dizendo endpoint, modalidade, janela e página. As janelas já concluídas permanecem na landing zone, e a próxima execução retoma a partir das janelas sem manifesto. A exceção é a sondagem anual: a falha dela não para a execução, e o ano é consultado mês a mês (decisão 1).
 
 **Motivo:** durante a exploração, um script de teste transformou uma consulta que falhou em "zero pregões em 2025", quando eram 2.012. Erro calado é o pior tipo de erro.
 
@@ -251,7 +255,7 @@ Recomendação: desative a suspensão do computador durante a carga completa. Na
 - [ ] Apagar o `compras_fab.duckdb` e rodar `--reconstruir` deixa o próximo incremental partindo do `dados_ate` correto, sem refazer a carga completa.
 - [ ] Uma filial nova na lista faz a carga completa só dela, enquanto os outros CNPJs seguem no incremental.
 - [ ] A falha de um CNPJ não avança o `dados_ate` dos outros.
-- [ ] A carga completa pula os anos em que a sondagem deu zero, e erro na sondagem para a execução.
+- [ ] A carga completa pula os anos em que a sondagem deu zero, e uma falha na sondagem faz o ano ser consultado mês a mês, sem pular nenhum mês.
 - [ ] Os testes unitários das funções da decisão 10 passam sem internet.
 - [ ] O README tem a seção "Custo e eficiência" com os números medidos (tempo, chamadas, MB) da carga completa, do incremental e da reconstrução.
 
