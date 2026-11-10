@@ -267,7 +267,8 @@ Recomendação: desative a suspensão do computador durante a carga completa. Na
 - A camada bruta mistura matriz e filiais nas mesmas tabelas; o CNPJ de quem publicou está em `orgaoEntidade.cnpj`.
 - Mascarar o CPF de fornecedores pessoa física. Na exploração, 4 dos 771 contratos do 1º semestre de 2026 tinham fornecedor pessoa física (agricultura familiar) com CPF completo. O CPF permanece apenas na camada bruta, que fica fora do repositório.
 - Avisar quando surgir um campo novo ou sumir um campo antigo no JSON.
-- Investigar e manter (não corrigir) as anomalias vistas na exploração: 74 contratos publicados antes da data de assinatura, um contrato apontando para compra de 2027, número de processo com espaços nas pontas, compras com valor estimado zero.
+- Investigar e manter (não corrigir) as anomalias vistas na exploração: 74 contratos publicados antes da data de assinatura, um contrato apontando para compra de 2027, compras com valor estimado zero.
+- Os espaços nas pontas do número de processo, antes listados como anomalia, foram reclassificados como formatação e são removidos na transformação ([decisão 5 de specs/transformacao.md](transformacao.md#5-vazios-texto-aparado-vazio-vira-nulo-nulo-nunca-é-preenchido)).
 
 **Painel (etapa 4):**
 
