@@ -2,8 +2,7 @@
 
     uv run python -m pipeline.transformacao   # recria a refined a partir da raw atual
 
-Fase 1: decisões 1 a 6, 8 e 10. Ainda sem refined.anomalias (decisão 7), sem o
-contrato de dados (decisão 9) e sem o comando único python -m pipeline.
+O comando único, que roda a ingestão antes, é python -m pipeline (decisão 10).
 """
 
 import logging
@@ -18,7 +17,9 @@ import duckdb
 import pandas as pd
 
 from pipeline import banco
+from pipeline.anomalias import REGRAS, registrar_anomalias
 from pipeline.config import Config, carregar_config
+from pipeline.contrato_dados import conferir_contrato
 from pipeline.refinamento import (
     COLUNAS_CONTRATACOES,
     COLUNAS_CONTRATOS,
@@ -54,7 +55,12 @@ ORIGEM = {"contratacoes": COLUNAS_CONTRATACOES, "contratos": COLUNAS_CONTRATOS}
 class Resultado:
     linhas: dict[str, int] = field(default_factory=dict)
     ligacoes: Counter = field(default_factory=Counter)
+    anomalias: Counter = field(default_factory=Counter)
     avisos: int = 0
+
+    def avisar(self, mensagem: str, *args) -> None:
+        self.avisos += 1
+        log.warning(mensagem, *args)
 
 
 # --- registro das execuções ----------------------------------------------------------
@@ -94,15 +100,16 @@ def abrir_execucao(con: duckdb.DuckDBPyConnection, execucao_id: str, inicio: dat
 
 def fechar_execucao(
     con: duckdb.DuckDBPyConnection, execucao_id: str, *, rodada: str | None, status: str,
-    resultado: Resultado | None, mensagem_erro: str | None,
+    resultado: Resultado, mensagem_erro: str | None,
 ) -> None:
-    linhas = resultado.linhas if resultado else {}
-    # linhas_anomalias fica nulo até a fase 2: zero diria que não há anomalia.
+    """Numa falha, as linhas ficam nulas, porque nada foi gravado; os avisos já emitidos contam."""
+    linhas = resultado.linhas
     con.execute(
         """
         UPDATE refined.execucoes
         SET rodada_ingestao = ?, fim = ?, status = ?, linhas_contratacoes = ?,
-            linhas_contratos = ?, linhas_fontes = ?, avisos = ?, mensagem_erro = ?
+            linhas_contratos = ?, linhas_fontes = ?, linhas_anomalias = ?, avisos = ?,
+            mensagem_erro = ?
         WHERE execucao_id = ?
         """,
         [
@@ -112,7 +119,8 @@ def fechar_execucao(
             linhas.get("contratacoes"),
             linhas.get("contratos"),
             linhas.get("contratacoes_fontes"),
-            resultado.avisos if resultado else None,
+            linhas.get("anomalias"),
+            resultado.avisos,
             mensagem_erro,
             execucao_id,
         ],
@@ -146,6 +154,38 @@ def ultima_rodada(con: duckdb.DuckDBPyConnection, cnpjs: tuple[str, ...]) -> str
             f"{', '.join(faltando)}; rode a ingestão antes"
         )
     return rodada
+
+
+def execucoes_da_rodada(con: duckdb.DuckDBPyConnection, rodada: str) -> set[str]:
+    return {
+        execucao_id for (execucao_id,) in con.execute(
+            "SELECT execucao_id FROM raw.execucoes WHERE rodada_id = ?", [rodada]
+        ).fetchall()
+    }
+
+
+# --- contrato de dados (decisão 9) ----------------------------------------------------------
+
+
+def conferir_contrato_de_dados(
+    raw: dict[str, list[LinhaRaw]], execucoes: set[str], resultado: Resultado
+) -> None:
+    """Avisa o que é novo; falha, antes de tocar na refined, se um campo da de/para sumiu."""
+    falhas = []
+    for tabela, linhas in raw.items():
+        ultima = [linha for linha in linhas if linha.execucao_id in execucoes]
+        contrato = conferir_contrato(tabela, linhas, ultima)
+        for aviso in contrato.avisos:
+            resultado.avisar("contrato de dados: %s", aviso)
+        if not ultima:
+            log.info(
+                "contrato de dados: a última rodada não trouxe registros de %s; "
+                "a conferência de campos ausentes não se aplica", tabela,
+            )
+        falhas += contrato.falhas
+    if falhas:
+        raise FalhaTransformacao("contrato de dados: " + "; ".join(falhas))
+    log.info("contrato de dados: nenhum campo da tabela de/para ausente")
 
 
 # --- leitura e gravação --------------------------------------------------------------------
@@ -251,13 +291,15 @@ def conferir(con: duckdb.DuckDBPyConnection) -> None:
 # --- execução ----------------------------------------------------------------------------------
 
 
-def transformar(con: duckdb.DuckDBPyConnection, cfg: Config) -> Resultado:
-    """Monta as linhas em memória e recria a refined numa única transação."""
-    vigentes_compras = escolher_vigentes(ler_raw(con, "contratacoes"), "contratacoes")
-    contratacoes, fontes = linhas_contratacoes(vigentes_compras)
+def transformar(con: duckdb.DuckDBPyConnection, cfg: Config, rodada: str, resultado: Resultado) -> None:
+    """Confere o contrato de dados, monta as linhas em memória e recria a refined numa transação."""
+    raw = {tabela: ler_raw(con, tabela) for tabela in ORIGEM}
+    conferir_contrato_de_dados(raw, execucoes_da_rodada(con, rodada), resultado)
+
+    contratacoes, fontes = linhas_contratacoes(escolher_vigentes(raw["contratacoes"], "contratacoes"))
     compras = {linha["numero_controle_pncp"] for linha in contratacoes}
     contratos = linhas_contratos(
-        escolher_vigentes(ler_raw(con, "contratos"), "contratos"),
+        escolher_vigentes(raw["contratos"], "contratos"),
         compras, cfg.cnpjs, cfg.matriz, cfg.data_inicial,
     )
     linhas = {"contratacoes": contratacoes, "contratacoes_fontes": fontes, "contratos": contratos}
@@ -266,25 +308,24 @@ def transformar(con: duckdb.DuckDBPyConnection, cfg: Config) -> Resultado:
     try:
         for tabela, colunas in TABELAS.items():
             gravar(con, tabela, colunas, linhas[tabela])
+        anomalias = registrar_anomalias(con)
         conferir(con)
         con.execute("COMMIT")
     except BaseException:
         con.execute("ROLLBACK")
         raise
 
-    resultado = Resultado(
-        linhas={tabela: len(valores) for tabela, valores in linhas.items()},
-        ligacoes=Counter(linha["ligacao_compra"] for linha in contratos),
-    )
+    resultado.linhas = {tabela: len(valores) for tabela, valores in linhas.items()}
+    resultado.linhas["anomalias"] = sum(anomalias.values())
+    resultado.anomalias = anomalias
+    resultado.ligacoes = Counter(linha["ligacao_compra"] for linha in contratos)
     nao_encontradas = resultado.ligacoes["compra_fab_nao_encontrada"]
     if nao_encontradas:
-        resultado.avisos += 1
-        log.warning(
+        resultado.avisar(
             "%d contratos apontam para compra da FAB do período ausente da refined "
             "(compra_fab_nao_encontrada): possível lacuna na ingestão",
             nao_encontradas,
         )
-    return resultado
 
 
 def executar(con: duckdb.DuckDBPyConnection, cfg: Config) -> int:
@@ -295,12 +336,12 @@ def executar(con: duckdb.DuckDBPyConnection, cfg: Config) -> int:
     log.info("execução %s", execucao_id)
 
     comeco = time.perf_counter()
-    rodada, resultado = None, None
+    rodada, resultado = None, Resultado()
     status, mensagem, codigo = "sucesso", None, 0
     try:
         rodada = ultima_rodada(con, cfg.cnpjs)
         log.info("rodada de ingestão %s: sucesso para os %d CNPJs", rodada, len(cfg.cnpjs))
-        resultado = transformar(con, cfg)
+        transformar(con, cfg, rodada, resultado)
     except FalhaTransformacao as e:
         status, mensagem, codigo = "falha", str(e), 1
     except KeyboardInterrupt:
@@ -324,6 +365,11 @@ def executar(con: duckdb.DuckDBPyConnection, cfg: Config) -> int:
             "ligacao_compra: %s",
             ", ".join(f"{valor} {resultado.ligacoes[valor]}" for valor in LIGACOES),
         )
+        log.info(
+            "anomalias por regra: %s",
+            ", ".join(f"{r.nome} {resultado.anomalias[r.nome]}" for r in REGRAS),
+        )
+        log.info("avisos: %d", resultado.avisos)
         log.info("sucesso em %.1f s", segundos)
     else:
         log.error("falha em %.1f s: %s", segundos, mensagem)

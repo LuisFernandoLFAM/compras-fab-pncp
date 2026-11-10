@@ -3,6 +3,7 @@
 Nada aqui chama a API nem abre o banco do projeto.
 """
 
+import logging
 from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
@@ -30,7 +31,10 @@ def con(cfg_teste):
     con.close()
 
 
-def inserir_raw(con, tabela: str, *registros: dict, extraido_em: str = "2026-11-08T00:00:00-03:00"):
+def inserir_raw(
+    con, tabela: str, *registros: dict, extraido_em: str = "2026-11-08T00:00:00-03:00",
+    execucao_id: str = f"r1-{CNPJ_MATRIZ}",
+):
     linhas = [
         {
             "registro": texto_registro(r),
@@ -42,7 +46,7 @@ def inserir_raw(con, tabela: str, *registros: dict, extraido_em: str = "2026-11-
             "_pagina": "1",
             "_arquivo_origem": "pagina_001.json",
             "_extraido_em": extraido_em,
-            "_execucao_id": "rodada-1-cnpj",
+            "_execucao_id": execucao_id,
         }
         for r in registros
     ]
@@ -108,7 +112,7 @@ def test_sucesso_grava_as_tres_tabelas(con, cfg_teste):
 
     assert transformacao.executar(con, cfg_teste) == 0
 
-    assert execucoes(con) == [("sucesso", "r1", 2, 3, 1, None, 0, None)]
+    assert execucoes(con) == [("sucesso", "r1", 2, 3, 1, 0, 0, None)]
     ligacoes = dict(con.execute("SELECT numero_controle_pncp, ligacao_compra FROM refined.contratos").fetchall())
     assert ligacoes == {
         f"{CNPJ_MATRIZ}-2-000001/2024": "compra_encontrada",
@@ -246,3 +250,53 @@ def test_conferencia_de_somas_desfaz_a_transacao(con, cfg_teste, monkeypatch):
 
     assert {t: conteudo(con, t) for t in transformacao.TABELAS} == antes
     assert "conferência de somas" in execucoes(con)[-1][-1]
+
+
+# --- anomalias e contrato de dados no fluxo ------------------------------------------------
+
+
+def test_anomalias_gravadas_e_contadas(con, cfg_teste, caplog):
+    caplog.set_level(logging.INFO)
+    inserir_raw(con, "contratacoes", contratacao_falsa())
+    inserir_raw(con, "contratos", contrato_falso(dataPublicacaoPncp="2024-03-20T09:00:00"))
+    rodada_ok(con, cfg_teste)
+
+    assert transformacao.executar(con, cfg_teste) == 0
+
+    assert con.execute("SELECT tabela, regra, descricao FROM refined.anomalias").fetchall() == [
+        ("contratos", "publicado_antes_assinatura", "publicado em 2024-03-20, assinado em 2024-04-01")
+    ]
+    assert execucoes(con)[0][5] == 1  # linhas_anomalias
+    assert "publicado_antes_assinatura 1" in caplog.text
+    assert "homologado_acima_estimado 0" in caplog.text
+
+
+def test_campo_novo_e_descartado_com_dado_avisam(con, cfg_teste, caplog):
+    inserir_raw(con, "contratacoes", contratacao_falsa(campoNovo=1))
+    inserir_raw(con, "contratos", contrato_falso(urlCipi="https://exemplo"))
+    rodada_ok(con, cfg_teste)
+
+    assert transformacao.executar(con, cfg_teste) == 0
+
+    assert execucoes(con)[0][6] == 2  # avisos
+    assert "campo novo campoNovo em 1 registros" in caplog.text
+    assert "campo descartado urlCipi preenchido em 1 registros" in caplog.text
+
+
+def test_campo_ausente_na_ultima_rodada_falha_sem_tocar_na_refined(con, cfg_teste):
+    raw_padrao(con)
+    rodada_ok(con, cfg_teste)
+    transformacao.executar(con, cfg_teste)
+    antes = {t: conteudo(con, t) for t in transformacao.TABELAS}
+
+    sem_processo = contrato_falso(f"{CNPJ_MATRIZ}-2-000009/2024")
+    del sem_processo["processo"]
+    inserir_raw(con, "contratos", sem_processo, execucao_id=f"r2-{CNPJ_MATRIZ}")
+    registrar_rodada(con, "r2", dict.fromkeys(cfg_teste.cnpjs, "sucesso"), datetime(2026, 11, 9, 10).astimezone())
+
+    assert transformacao.executar(con, cfg_teste) == 1
+
+    assert {t: conteudo(con, t) for t in transformacao.TABELAS} == antes
+    status, *_, mensagem = execucoes(con)[-1]
+    assert status == "falha"
+    assert "contratos: campo processo ausente em 1 registros da última rodada" in mensagem

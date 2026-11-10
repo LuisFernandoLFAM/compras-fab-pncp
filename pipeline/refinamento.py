@@ -189,6 +189,18 @@ COLUNAS_RASTRO = [
     Coluna("_execucao_id", (), "texto"),
 ]
 
+# Campos 100% vazios na raw, fora da refined (decisão 3).
+DESCARTADOS = {
+    "contratacoes": ("orgaoSubRogado", "unidadeSubRogada"),
+    "contratos": (
+        "identificadorCipi",
+        "urlCipi",
+        "niFornecedorSubContratado",
+        "nomeFornecedorSubContratado",
+        "tipoPessoaSubContratada",
+    ),
+}
+
 
 # --- versão vigente (decisão 1) ---------------------------------------------------
 

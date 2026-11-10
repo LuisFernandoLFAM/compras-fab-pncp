@@ -154,6 +154,11 @@ def contrato_falso(
         },
         "orgaoSubRogado": None,
         "unidadeSubRogada": None,
+        "identificadorCipi": None,
+        "urlCipi": None,
+        "niFornecedorSubContratado": None,
+        "nomeFornecedorSubContratado": None,
+        "tipoPessoaSubContratada": None,
     }
     registro.update(campos)
     return registro
