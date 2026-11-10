@@ -93,7 +93,7 @@ A conversão não encurta nomes nem tira redundâncias (`unidadeOrgao.nomeUnidad
 | Booleanos | `BOOLEAN`, mantendo o nulo |
 | Demais textos, inclusive códigos em letras (`orgao_esfera_id`, `orgao_poder_id`, `tipo_pessoa`, `codigo_pais_fornecedor`) | `VARCHAR` |
 
-**Dinheiro:** o valor é convertido a partir do texto do número no JSON, sem passar por ponto flutuante. A transformação falha, com mensagem dizendo tabela, chave e campo, se um valor não couber no tipo: mais de 16 dígitos na parte inteira ou mais casas decimais do que o tipo aceita (2, ou 4 em `valor_parcela`). Nenhum valor é arredondado em silêncio. Hoje o maior valor tem 11 dígitos na parte inteira, e só `valorParcela` tem 3 ou 4 casas.
+**Dinheiro:** o valor é convertido a partir do texto do número no JSON, sem passar por ponto flutuante. A transformação falha, com mensagem dizendo tabela, chave e campo, se um valor não couber no tipo: mais dígitos na parte inteira do que o tipo aceita (16 em `DECIMAL(18,2)`, ou 14 em `DECIMAL(18,4)`, no `valor_parcela`) ou mais casas decimais do que o tipo aceita (2, ou 4 em `valor_parcela`). Zeros à direita nas casas decimais não contam (`1.230` cabe em `DECIMAL(18,2)`), porque nada é arredondado. Nenhum valor é arredondado em silêncio. Hoje o maior valor tem 11 dígitos na parte inteira, e só `valorParcela` tem 3 ou 4 casas.
 
 **Datas:** os formatos são `AAAA-MM-DDTHH:MM:SS` e `AAAA-MM-DD`, uniformes na raw inteira. Um valor fora do formato faz a transformação falhar.
 
@@ -105,7 +105,10 @@ A conversão não encurta nomes nem tira redundâncias (`unidadeOrgao.nomeUnidad
 
 **Alternativas consideradas:** `DOUBLE` para dinheiro. Foi descartado porque guarda os valores de forma aproximada.
 
-**Custo da decisão:** a conversão do dinheiro precisa ler o número como texto, o que exige cuidado na implementação (o leitor de JSON padrão converte números para ponto flutuante).
+**Custo da decisão:**
+
+- A conversão do dinheiro precisa ler o número como texto, o que exige cuidado na implementação (o leitor de JSON padrão converte números para ponto flutuante).
+- O texto de `registro` na raw foi reserializado a partir de ponto flutuante na ingestão: `1234.50` aparece como `1234.5`. Isso preserva o valor exato até 15 dígitos significativos, e hoje o máximo é 15 (11 na parte inteira e 4 casas). Se aparecer um valor com mais de 15 dígitos significativos, a conversão deve passar a ler o literal do número na landing, que guarda a resposta original da API.
 
 ### 5. Vazios: texto aparado, vazio vira nulo, nulo nunca é preenchido
 
