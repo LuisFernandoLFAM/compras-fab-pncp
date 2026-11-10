@@ -31,6 +31,8 @@ COLUNAS_EXECUCOES = (
     "linhas_ja_existentes",
     "mb_landing",
     "mensagem_erro",
+    "cnpj",
+    "rodada_id",
 )
 
 
@@ -56,10 +58,16 @@ def criar_tabelas(con: duckdb.DuckDBPyConnection, tabelas: list[str]) -> None:
             linhas_novas INTEGER,
             linhas_ja_existentes INTEGER,
             mb_landing DOUBLE,
-            mensagem_erro VARCHAR
+            mensagem_erro VARCHAR,
+            cnpj VARCHAR,
+            rodada_id VARCHAR
         )
         """
     )
+    # Bancos anteriores à lista de CNPJs (decisão 12): as colunas entram vazias e
+    # são preenchidas por preencher_execucao_antiga.
+    for coluna in ("cnpj", "rodada_id"):
+        con.execute(f"ALTER TABLE raw.execucoes ADD COLUMN IF NOT EXISTS {coluna} VARCHAR")
 
 
 def inserir_linhas(con: duckdb.DuckDBPyConnection, tabela: str, linhas: list[dict]) -> tuple[int, int]:
@@ -93,9 +101,21 @@ def contar_linhas(con: duckdb.DuckDBPyConnection, tabela: str) -> int:
     return total
 
 
-def historico_execucoes(con: duckdb.DuckDBPyConnection) -> list[tuple[str, str, str, date | None]]:
+def historico_execucoes(
+    con: duckdb.DuckDBPyConnection, cnpj: str
+) -> list[tuple[str, str, str, date | None]]:
     return con.execute(
-        "SELECT execucao_id, modo, status, dados_ate FROM raw.execucoes ORDER BY inicio"
+        "SELECT execucao_id, modo, status, dados_ate FROM raw.execucoes WHERE cnpj = ? ORDER BY inicio",
+        [cnpj],
+    ).fetchall()
+
+
+def preencher_execucao_antiga(
+    con: duckdb.DuckDBPyConnection, execucao_id: str, cnpj: str, rodada_id: str
+) -> None:
+    con.execute(
+        "UPDATE raw.execucoes SET cnpj = ?, rodada_id = ? WHERE execucao_id = ?",
+        [cnpj, rodada_id, execucao_id],
     ).fetchall()
 
 
@@ -106,7 +126,8 @@ def ler_execucoes(con: duckdb.DuckDBPyConnection, execucao_id: str | None = None
         f"""
         SELECT execucao_id, modo, strftime(inicio, '%Y-%m-%dT%H:%M:%S.%f%z'),
                strftime(fim, '%Y-%m-%dT%H:%M:%S.%f%z'), status, dados_ate::VARCHAR,
-               chamadas_api, linhas_novas, linhas_ja_existentes, mb_landing, mensagem_erro
+               chamadas_api, linhas_novas, linhas_ja_existentes, mb_landing, mensagem_erro,
+               cnpj, rodada_id
         FROM raw.execucoes {filtro} ORDER BY inicio
         """,
         [execucao_id] if execucao_id else [],
@@ -119,25 +140,27 @@ def substituir_execucoes(con: duckdb.DuckDBPyConnection, execucoes: list[dict]) 
     con.execute("DELETE FROM raw.execucoes").fetchall()
     for e in execucoes:
         con.execute(
-            """
-            INSERT INTO raw.execucoes VALUES (?, ?, CAST(? AS TIMESTAMPTZ), CAST(? AS TIMESTAMPTZ),
-                ?, CAST(? AS DATE), ?, ?, ?, ?, ?)
+            f"""
+            INSERT INTO raw.execucoes ({", ".join(COLUNAS_EXECUCOES)})
+            VALUES (?, ?, CAST(? AS TIMESTAMPTZ), CAST(? AS TIMESTAMPTZ),
+                ?, CAST(? AS DATE), ?, ?, ?, ?, ?, ?, ?)
             """,
-            [e[c] for c in COLUNAS_EXECUCOES],
+            [e.get(c) for c in COLUNAS_EXECUCOES],
         ).fetchall()
 
 
 def abrir_execucao(
     con: duckdb.DuckDBPyConnection, execucao_id: str, modo: str, inicio: datetime,
-    dados_ate: date | None,
+    dados_ate: date | None, cnpj: str, rodada_id: str,
 ) -> None:
     """Registra a execução já como falha: se o processo morrer, o registro continua verdadeiro."""
     con.execute(
-        """
-        INSERT INTO raw.execucoes VALUES (?, ?, ?, NULL, 'falha', ?, 0, 0, 0, NULL,
-            'execução em andamento ou interrompida')
+        f"""
+        INSERT INTO raw.execucoes ({", ".join(COLUNAS_EXECUCOES)})
+        VALUES (?, ?, ?, NULL, 'falha', ?, 0, 0, 0, NULL,
+            'execução em andamento ou interrompida', ?, ?)
         """,
-        [execucao_id, modo, inicio, dados_ate],
+        [execucao_id, modo, inicio, dados_ate, cnpj, rodada_id],
     ).fetchall()
 
 

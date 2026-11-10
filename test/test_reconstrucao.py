@@ -32,6 +32,7 @@ class ApiFalsa:
     instancias: ClassVar[list["ApiFalsa"]] = []
 
     def __init__(self, cfg):
+        self.cfg = cfg
         self.parametros: list[tuple[str, dict]] = []
         ApiFalsa.instancias.append(self)
 
@@ -39,9 +40,16 @@ class ApiFalsa:
     def chamadas(self) -> int:
         return len(self.parametros)
 
-    def buscar(self, endpoint, parametros, contexto):
+    def buscar(self, endpoint, parametros, contexto, timeout=None, novas_tentativas=None):
         self.parametros.append((endpoint, parametros))
         modalidade = parametros.get("codigoModalidadeContratacao")
+        if parametros["tamanhoPagina"] == self.cfg.tamanho_pagina_sondagem:
+            # Sondagem anual: só a modalidade 6 e os contratos têm registros.
+            if endpoint == "/v1/contratacoes/publicacao" and modalidade == 6:
+                return ok("contratacoes_pagina_1.json")
+            if endpoint == "/v1/contratos":
+                return ok("contratos_pagina_unica.json")
+            return VAZIO
         mes = parametros["dataInicial"][:6]
         if endpoint == "/v1/contratacoes/publicacao" and modalidade == 6 and mes == "202609":
             arquivo = ["contratacoes_pagina_1.json", "contratacoes_pagina_2.json"]
@@ -61,7 +69,7 @@ class ApiProibida:
 @pytest.fixture
 def ambiente(cfg, monkeypatch):
     """Configuração com período e modalidades reduzidos, landing e banco temporários."""
-    cfg = replace(cfg, data_inicial=date(2026, 9, 1), modalidades=(6, 8))
+    cfg = replace(cfg, data_inicial=date(2026, 9, 1), modalidades=(6, 8), cnpjs=(cfg.matriz,))
     monkeypatch.setattr(ingestao, "carregar_config", lambda: cfg)
     monkeypatch.setattr(ingestao, "ClienteAPI", ApiFalsa)
     ApiFalsa.instancias = []
@@ -181,7 +189,7 @@ def test_espelho_registra_inicio_e_fim_de_cada_execucao(ambiente):
 def test_reconstrucao_ignora_janela_sem_manifesto(ambiente, monkeypatch):
     assert ingestao.main(["--ate", COMPLETA_ATE]) == 0
     antes = raw_completa(ambiente)
-    incompleta = ambiente.landing / "contratos" / f"cnpj={ambiente.cnpj}" / "janela=2026-12-01_2026-12-31"
+    incompleta = ambiente.landing / "contratos" / f"cnpj={ambiente.matriz}" / "janela=2026-12-01_2026-12-31"
     landing.salvar_pagina(incompleta, 1, contrato_alterado().corpo)
 
     monkeypatch.setattr(ingestao, "ClienteAPI", ApiProibida)

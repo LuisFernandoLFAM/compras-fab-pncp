@@ -47,6 +47,20 @@ def test_sucesso_identifica_o_projeto_e_usa_timeout(cfg):
     assert timeout == 60
 
 
+def test_sondagem_usa_tempo_limite_proprio(cfg):
+    c, sessao, _ = cliente(cfg, [RespostaHTTP(200, b"{}")])
+    c.buscar("/v1/contratos", {"pagina": 1}, "ctx", timeout=cfg.timeout_sondagem)
+    assert sessao.chamadas[0][2] == 120
+
+
+def test_sondagem_desiste_depois_de_uma_nova_tentativa(cfg):
+    c, sessao, esperas = cliente(cfg, [RespostaHTTP(500)] * 2)
+    with pytest.raises(FalhaAPI, match="após 1 novas tentativas"):
+        c.buscar("/v1/contratos", {}, "sondagem", novas_tentativas=cfg.novas_tentativas_sondagem)
+    assert len(sessao.chamadas) == 2
+    assert esperas == [2, cfg.pausa]  # espera da única nova tentativa e pausa entre chamadas
+
+
 def test_204_e_vazio_sem_nova_tentativa(cfg):
     c, sessao, _ = cliente(cfg, [RespostaHTTP(204)])
     assert c.buscar("/v1/contratos", {}, "ctx").classe is ClasseResposta.VAZIO

@@ -23,14 +23,14 @@ def contratos(cfg):
 
 
 def pasta(cfg, endpoint, modalidade):
-    return caminho_janela(cfg.landing, endpoint.publicacao, cfg.cnpj, modalidade, INICIO, FIM)
+    return caminho_janela(cfg.landing, endpoint.publicacao, cfg.matriz, modalidade, INICIO, FIM)
 
 
 def test_janela_vazia_recebe_manifesto_e_nao_e_consultada_na_retomada(cfg):
     endpoint = contratacoes(cfg)
     cliente = ClienteFalso([VAZIO])
 
-    manifesto, baixada = processar_janela(cliente, cfg, endpoint, 13, INICIO, FIM, "e1", set())
+    manifesto, baixada = processar_janela(cliente, cfg, endpoint, cfg.matriz, 13, INICIO, FIM, "e1", set())
 
     assert baixada
     assert cliente.chamadas == 1
@@ -40,7 +40,7 @@ def test_janela_vazia_recebe_manifesto_e_nao_e_consultada_na_retomada(cfg):
 
     # Retomada: a janela vazia já concluída não gera nova chamada.
     cliente_retomada = ClienteFalso([])
-    _, baixada = processar_janela(cliente_retomada, cfg, endpoint, 13, INICIO, FIM, "e2", {"e1"})
+    _, baixada = processar_janela(cliente_retomada, cfg, endpoint, cfg.matriz, 13, INICIO, FIM, "e2", {"e1"})
     assert not baixada
     assert cliente_retomada.chamadas == 0
 
@@ -49,7 +49,7 @@ def test_janela_com_duas_paginas(cfg):
     endpoint = contratacoes(cfg)
     cliente = ClienteFalso([ok("contratacoes_pagina_1.json"), ok("contratacoes_pagina_2.json")])
 
-    manifesto, _ = processar_janela(cliente, cfg, endpoint, 6, INICIO, FIM, "e1", set())
+    manifesto, _ = processar_janela(cliente, cfg, endpoint, cfg.matriz, 6, INICIO, FIM, "e1", set())
 
     assert [p["pagina"] for p in cliente.parametros] == [1, 2]
     assert all(p["codigoModalidadeContratacao"] == 6 for p in cliente.parametros)
@@ -64,11 +64,11 @@ def test_janela_com_duas_paginas(cfg):
 
 def test_janela_ja_concluida_por_execucao_que_terminou_com_sucesso_e_baixada_de_novo(cfg):
     endpoint = contratos(cfg)
-    processar_janela(ClienteFalso([ok("contratos_pagina_unica.json")]), cfg, endpoint, None,
+    processar_janela(ClienteFalso([ok("contratos_pagina_unica.json")]), cfg, endpoint, cfg.matriz, None,
                      INICIO, FIM, "e1", set())
 
     cliente = ClienteFalso([ok("contratos_pagina_unica.json")])
-    manifesto, baixada = processar_janela(cliente, cfg, endpoint, None, INICIO, FIM, "e2", set())
+    manifesto, baixada = processar_janela(cliente, cfg, endpoint, cfg.matriz, None, INICIO, FIM, "e2", set())
 
     assert baixada and cliente.chamadas == 1
     assert manifesto["execucao_id"] == "e2"
@@ -80,7 +80,7 @@ def test_janela_incompleta_e_baixada_de_novo_na_retomada(cfg):
     landing.salvar_pagina(p, 1, ok("contratacoes_pagina_1.json").corpo)  # sem manifesto
 
     cliente = ClienteFalso([ok("contratacoes_pagina_1.json"), ok("contratacoes_pagina_2.json")])
-    _, baixada = processar_janela(cliente, cfg, endpoint, 6, INICIO, FIM, "e2", {"e1"})
+    _, baixada = processar_janela(cliente, cfg, endpoint, cfg.matriz, 6, INICIO, FIM, "e2", {"e1"})
 
     assert baixada and cliente.chamadas == 2
     assert landing.ler_manifesto(p) is not None
@@ -92,7 +92,7 @@ def test_conferencia_tenta_de_novo_uma_vez_e_depois_para(cfg):
     cliente = ClienteFalso([ok("contratacoes_pagina_1.json"), VAZIO] * 2)
 
     with pytest.raises(FalhaConferencia, match="contagem"):
-        processar_janela(cliente, cfg, endpoint, 6, INICIO, FIM, "e1", set())
+        processar_janela(cliente, cfg, endpoint, cfg.matriz, 6, INICIO, FIM, "e1", set())
 
     assert cliente.chamadas == 4
     assert landing.ler_manifesto(pasta(cfg, endpoint, 6)) is None
@@ -104,7 +104,7 @@ def test_conferencia_se_recupera_na_segunda_tentativa(cfg):
         ok("contratacoes_pagina_1.json"), VAZIO,
         ok("contratacoes_pagina_1.json"), ok("contratacoes_pagina_2.json"),
     ])
-    manifesto, _ = processar_janela(cliente, cfg, endpoint, 6, INICIO, FIM, "e1", set())
+    manifesto, _ = processar_janela(cliente, cfg, endpoint, cfg.matriz, 6, INICIO, FIM, "e1", set())
     assert manifesto["total_salvo"] == 3
 
 
@@ -112,14 +112,14 @@ def test_duplicata_impede_o_manifesto(cfg):
     endpoint = contratacoes(cfg)
     cliente = ClienteFalso([ok("contratacoes_duplicata.json")] * 2)
     with pytest.raises(FalhaConferencia, match="duplicatas"):
-        processar_janela(cliente, cfg, endpoint, 8, INICIO, FIM, "e1", set())
+        processar_janela(cliente, cfg, endpoint, cfg.matriz, 8, INICIO, FIM, "e1", set())
 
 
 def test_corpo_invalido_vira_falha_e_nao_zero(cfg):
     endpoint = contratos(cfg)
     cliente = ClienteFalso([Resposta(ClasseResposta.SUCESSO, b"<html>manutencao</html>", "t")])
     with pytest.raises(FalhaAPI, match="resposta inválida"):
-        processar_janela(cliente, cfg, endpoint, None, INICIO, FIM, "e1", set())
+        processar_janela(cliente, cfg, endpoint, cfg.matriz, None, INICIO, FIM, "e1", set())
     assert landing.ler_manifesto(pasta(cfg, endpoint, None)) is None
 
 
@@ -129,7 +129,7 @@ def test_carga_na_raw_e_idempotente(cfg):
     banco.criar_tabelas(con, ["contratacoes", "contratos"])
     endpoint = contratacoes(cfg)
     cliente = ClienteFalso([ok("contratacoes_pagina_1.json"), ok("contratacoes_pagina_2.json")])
-    manifesto, _ = processar_janela(cliente, cfg, endpoint, 6, INICIO, FIM, "e1", set())
+    manifesto, _ = processar_janela(cliente, cfg, endpoint, cfg.matriz, 6, INICIO, FIM, "e1", set())
 
     assert carregar_janela(con, cfg, endpoint, manifesto) == (3, 0)
     assert carregar_janela(con, cfg, endpoint, manifesto) == (0, 3)
@@ -150,7 +150,7 @@ def test_incremental_usa_endpoint_de_atualizacao_e_acrescenta_versoes(cfg):
 
     # Carga completa: uma versão do contrato, pelo endpoint de publicação.
     manifesto, _ = processar_janela(
-        ClienteFalso([ok("contratos_pagina_unica.json")]), cfg, endpoint, None,
+        ClienteFalso([ok("contratos_pagina_unica.json")]), cfg, endpoint, cfg.matriz, None,
         INICIO, FIM, "e1", set(),
     )
     assert carregar_janela(con, cfg, endpoint, manifesto) == (1, 0)
@@ -161,12 +161,12 @@ def test_incremental_usa_endpoint_de_atualizacao_e_acrescenta_versoes(cfg):
     alterado = Resposta(ClasseResposta.SUCESSO, json.dumps(pagina).encode(), "2026-11-08T10:00:00-03:00")
     cliente = ClienteFalso([alterado])
     manifesto, _ = processar_janela(
-        cliente, cfg, endpoint, None, INICIO, FIM, "e2", set(), endpoint.atualizacao
+        cliente, cfg, endpoint, cfg.matriz, None, INICIO, FIM, "e2", set(), endpoint.atualizacao
     )
 
     assert manifesto["endpoint"] == "/v1/contratos/atualizacao"
     assert caminho_janela(
-        cfg.landing, endpoint.atualizacao, cfg.cnpj, None, INICIO, FIM
+        cfg.landing, endpoint.atualizacao, cfg.matriz, None, INICIO, FIM
     ).as_posix().endswith("contratos_atualizacao/cnpj=00394429000100/janela=2026-03-01_2026-03-31")
     assert carregar_janela(con, cfg, endpoint, manifesto) == (1, 0)
 

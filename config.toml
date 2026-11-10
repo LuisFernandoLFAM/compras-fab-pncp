@@ -1,8 +1,22 @@
 # Configuração da ingestão (spec: specs/ingestao.md, decisão 9).
-# Trocar o CNPJ faz o pipeline servir para qualquer órgão do PNCP.
+# Trocar a lista de CNPJs faz o pipeline servir para qualquer órgão do PNCP.
 
 [orgao]
-cnpj = "00394429000100"  # Comando da Aeronáutica
+# Matriz e filiais (decisão 12). As filiais foram encontradas nas referências
+# dos contratos da matriz a compras de outro CNPJ com a mesma raiz; a lista pode
+# estar incompleta. Cada CNPJ tem o próprio ponto de partida.
+cnpjs = [
+    "00394429000100",  # Comando da Aeronáutica (matriz)
+    "00394429018824",
+    "00394429019715",
+    "00394429018310",
+    "00394429019391",
+    "00394429017933",
+    "00394429018409",
+    "00394429018581",
+]
+# CNPJ das execuções antigas sem manifesto na landing (migração, decisão 12).
+matriz = "00394429000100"
 
 [periodo]
 data_inicial = 2023-01-01
@@ -11,6 +25,11 @@ data_inicial = 2023-01-01
 url_base = "https://pncp.gov.br/api/consulta"
 tamanho_pagina = 50
 timeout_segundos = 60
+# Sondagem anual (decisão 1): janelas de um ano chegaram a ~55 s por chamada.
+timeout_sondagem_segundos = 120
+tamanho_pagina_sondagem = 10  # só o totalRegistros interessa
+# A sondagem tem um caminho de volta (mês a mês), então insiste menos.
+novas_tentativas_sondagem = 1
 novas_tentativas = 3
 esperas_segundos = [2, 4, 8]  # tempo esgotado, erro de conexão e HTTP 5xx
 esperas_429_segundos = [30, 60, 120]  # HTTP 429 sem cabeçalho Retry-After
