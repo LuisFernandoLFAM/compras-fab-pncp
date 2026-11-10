@@ -42,10 +42,19 @@ class ClienteAPI:
         self.dormir = dormir
         self.chamadas = 0
 
-    def buscar(self, endpoint: str, parametros: dict, contexto: str) -> Resposta:
-        """Faz a chamada com novas tentativas só para falhas temporárias."""
+    def buscar(
+        self, endpoint: str, parametros: dict, contexto: str, timeout: float | None = None,
+        novas_tentativas: int | None = None,
+    ) -> Resposta:
+        """Faz a chamada com novas tentativas só para falhas temporárias.
+
+        `timeout` e `novas_tentativas` substituem os valores padrão (a sondagem
+        anual usa um tempo limite maior e menos tentativas).
+        """
         url = self.cfg.url_base + endpoint
-        novas_tentativas = self.cfg.novas_tentativas
+        timeout = timeout or self.cfg.timeout
+        if novas_tentativas is None:
+            novas_tentativas = self.cfg.novas_tentativas
         detalhe = ""
         for tentativa in range(novas_tentativas + 1):
             if self.chamadas:
@@ -53,7 +62,7 @@ class ClienteAPI:
             self.chamadas += 1
             extraido_em = agora()
             try:
-                r = self.sessao.get(url, params=parametros, timeout=self.cfg.timeout)
+                r = self.sessao.get(url, params=parametros, timeout=timeout)
             except ERROS_TEMPORARIOS as e:
                 detalhe = f"{type(e).__name__}: {e}"
                 espera = self.cfg.esperas[tentativa] if tentativa < novas_tentativas else 0

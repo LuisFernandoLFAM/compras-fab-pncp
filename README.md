@@ -6,7 +6,9 @@ Pipeline de dados sobre as contratações e contratos do Comando da Aeronáutica
 
 O pipeline baixa as contratações e os contratos de um órgão público da [API de consulta do PNCP](https://pncp.gov.br/api/consulta), pública e sem cadastro, e os guarda num banco DuckDB (`compras_fab.duckdb`).
 
-O caso de uso é o Comando da Aeronáutica, mas o órgão é definido pelo CNPJ no `config.toml`. Trocar o CNPJ faz o pipeline servir para qualquer órgão que publique no PNCP.
+O caso de uso é o Comando da Aeronáutica: a matriz e 7 filiais, com a mesma raiz de CNPJ. A lista de CNPJs fica no `config.toml`, e trocá-la faz o pipeline servir para qualquer órgão que publique no PNCP.
+
+As filiais publicaram compras sob o próprio CNPJ em 2024 e 2025, por isso entram na carga junto com a matriz. A lista de filiais pode estar incompleta, porque foi montada a partir dos contratos da matriz ([decisão 12 da spec](specs/ingestao.md#12-matriz-e-filiais-uma-lista-de-cnpjs-cada-um-com-o-próprio-ponto-de-partida)).
 
 Os dados passam por camadas:
 
@@ -24,7 +26,7 @@ Grão de cada tabela da camada `raw`:
 | --- | --- |
 | `raw.contratacoes` | versão de cada contratação. O mesmo registro pode aparecer mais de uma vez, uma por versão; o `_hash` identifica a versão. |
 | `raw.contratos` | versão de cada contrato, com a mesma regra. |
-| `raw.execucoes` | execução do pipeline. |
+| `raw.execucoes` | execução do pipeline para cada CNPJ. |
 
 A escolha da versão mais recente de cada registro fica para a etapa de transformação.
 
@@ -48,7 +50,7 @@ uv run python -m pipeline.ingestao --ate 2026-10-31   # define a data final
 uv run python -m pipeline.ingestao --reconstruir      # recria o banco a partir da landing, sem API
 ```
 
-A primeira execução faz a carga completa, de 01/01/2023 até ontem. As seguintes trazem só o que foi publicado ou atualizado desde a última execução com sucesso. Se uma execução falhar, basta rodar de novo: ela retoma das janelas que ficaram incompletas.
+A primeira execução de cada CNPJ faz a carga completa, de 01/01/2023 até ontem. As seguintes trazem só o que foi publicado ou atualizado desde a última execução com sucesso. Se uma execução falhar, basta rodar de novo: ela retoma das janelas que ficaram incompletas.
 
 Testes:
 
@@ -68,6 +70,8 @@ Números medidos com o Comando da Aeronáutica:
 | Carga completa (07 e 08/11/2026) | 1.027 | cerca de 81 min ativos | 19.778 linhas, 34,75 MB na landing |
 | Incremental (08/11/2026, 1 dia) | 14 | 41 s | 0 linhas (07/11/2026 foi sábado, sem atualizações) |
 | Reconstrução a partir da landing (08/11/2026) | 0 | 21 s | banco idêntico ao original |
+| Carga completa das 7 filiais (09 e 10/11/2026) | 1.003 | cerca de 2h39min (soma de 9 execuções, incluindo 2 que falharam e foram retomadas) | 654 linhas (649 contratações e 5 contratos) |
+| Incremental da matriz num dia útil (09/11/2026) | 14 | 59 s | 61 linhas |
 
 A primeira medição da carga completa deu 9h38min, porque o computador suspendeu três vezes durante a execução; descontadas as suspensões, foram cerca de 81 minutos de trabalho. A análise está em [docs/analise-carga-completa.md](docs/analise-carga-completa.md).
 
@@ -75,9 +79,10 @@ A primeira medição da carga completa deu 9h38min, porque o computador suspende
 
 - **Landing zone:** recriar o banco custa 0 chamadas e 21 segundos, em vez de outra carga completa de cerca de 85 minutos. O banco é descartável.
 - **Incremental:** atualizar um dia custa 14 chamadas, em vez de 1.027.
+- **Sondagem anual:** a carga completa das filiais custou 1.003 chamadas, contra cerca de 4.600 estimadas sem a sondagem. Antes de descer mês a mês, uma consulta por ano diz se há registros; os anos sem nenhum são pulados.
 - **Pausa de 3 s entre chamadas:** não encurta a carga completa, porque o limite da API, de cerca de 20 chamadas por minuto, é o que define a duração. Mas reduz as respostas HTTP 429 de 74 para no máximo cerca de 10.
 
-**Otimização avaliada e não adotada:** consultar cada modalidade uma vez para o período inteiro antes de percorrer os meses evitaria cerca de 280 chamadas vazias na carga completa. Não compensa, porque a carga completa roda raramente e o incremental já faz poucas chamadas.
+**Otimização avaliada, primeiro não adotada e depois adotada:** sondar o período antes de percorrer os meses evitaria cerca de 280 chamadas vazias na carga completa da matriz. No início não compensava, porque a carga completa rodava raramente e para um CNPJ só. Passou a ser adotada, em forma de sondagem anual, quando a carga completa passou a rodar para vários CNPJs: as filiais publicaram em poucas modalidades e em poucos anos, e quase todas as consultas mês a mês viriam vazias.
 
 ## Onde a IA errou (e como percebi)
 
@@ -88,6 +93,10 @@ A primeira medição da carga completa deu 9h38min, porque o computador suspende
 **Hash sem ordenar as chaves.** No plano da fase 1, o hash seria calculado sobre o JSON sem ordenar as chaves, o que criaria versões falsas se a API mudasse a ordem dos campos. Percebi na revisão do plano, antes de virar código. O hash passou a ser calculado sobre uma forma canônica do JSON, com as chaves ordenadas, e ganhou um teste.
 
 **Data da última carga.** No resumo da fase 2, a IA afirmou que a última carga ia até 07/11, mas o banco registrava 06/11. Se fosse verdade, o incremental pularia um dia inteiro. Percebi conferindo o banco antes de rodar. Era só um erro no texto; o código estava certo.
+
+**Só o CNPJ da matriz.** O recorte inicial filtrava só o CNPJ da matriz, sem verificar se a FAB publicava por outros CNPJs. Percebi ao investigar a ligação entre contratos e compras: 180 contratos apontavam para compras de filiais que a carga não tinha baixado (cerca de 12% das compras de 2024). Corrigi antes da transformação, para as etapas seguintes não serem validadas sobre dado incompleto.
+
+**Sondagem com janelas anuais.** A sondagem foi desenhada com janelas anuais, mas o endpoint de contratos da API desiste de consultas anuais pesadas com HTTP 500 depois de cerca de 55 s. Percebi quando a carga parou duas vezes no mesmo ponto. Corrigi para que uma sondagem que falha caia para a consulta mês a mês, sem pular nenhum mês.
 
 ## Documentação
 

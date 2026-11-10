@@ -12,13 +12,18 @@ from pipeline.processamento import (
     RespostaInvalida,
     caminho_janela,
     classificar_status,
+    cnpj_das_execucoes,
+    completar_execucoes_antigas,
     conferir_janela,
     escolher_modo,
     espera_429,
     hash_registro,
+    id_execucao,
     ids_retomaveis,
     janela_incremental,
     janela_ja_concluida,
+    janelas_anuais,
+    janelas_dos_anos,
     janelas_mensais,
     ler_pagina,
     linhas_da_resposta,
@@ -186,6 +191,86 @@ def test_caminho_janela_com_e_sem_modalidade():
     assert sem.as_posix() == (
         "data/landing/contratos/cnpj=00394429000100/janela=2026-03-01_2026-03-31"
     )
+
+
+def test_caminho_da_sondagem_usa_outro_prefixo():
+    pasta = caminho_janela(Path("data/landing"), "/v1/contratos", "00394429018824", None,
+                           date(2024, 1, 1), date(2024, 12, 31), "sondagem")
+    assert pasta.as_posix() == (
+        "data/landing/contratos/cnpj=00394429018824/sondagem=2024-01-01_2024-12-31"
+    )
+
+
+# --- sondagem anual ------------------------------------------------------------
+
+
+def test_janelas_anuais_recortam_as_pontas():
+    assert janelas_anuais(date(2023, 1, 1), date(2026, 11, 8)) == [
+        (date(2023, 1, 1), date(2023, 12, 31)),
+        (date(2024, 1, 1), date(2024, 12, 31)),
+        (date(2025, 1, 1), date(2025, 12, 31)),
+        (date(2026, 1, 1), date(2026, 11, 8)),
+    ]
+    assert janelas_anuais(date(2026, 3, 15), date(2026, 4, 2)) == [
+        (date(2026, 3, 15), date(2026, 4, 2))
+    ]
+
+
+def test_janelas_anuais_rejeitam_periodo_invertido():
+    with pytest.raises(ValueError):
+        janelas_anuais(date(2026, 2, 1), date(2026, 1, 1))
+
+
+def test_janelas_dos_anos_mantem_so_os_anos_com_dado():
+    mensais = janelas_mensais(date(2024, 11, 1), date(2025, 2, 28))
+    assert janelas_dos_anos(mensais, {2025}) == [
+        (date(2025, 1, 1), date(2025, 1, 31)), (date(2025, 2, 1), date(2025, 2, 28))
+    ]
+    assert janelas_dos_anos(mensais, set()) == []
+    assert janelas_dos_anos(mensais, {2024, 2025}) == mensais
+
+
+# --- execuções por CNPJ e migração das antigas ---------------------------------
+
+MATRIZ, FILIAL = "00394429000100", "00394429018824"
+
+
+def test_id_execucao_junta_rodada_e_cnpj():
+    assert id_execucao("20261109T100000-abc123", FILIAL) == "20261109T100000-abc123-00394429018824"
+
+
+def test_cnpj_das_execucoes_pelos_manifestos():
+    manifestos = [
+        {"execucao_id": "e1", "cnpj": FILIAL},
+        {"execucao_id": "e1", "cnpj": FILIAL},
+        {"execucao_id": "e2", "cnpj": MATRIZ},
+    ]
+    assert cnpj_das_execucoes(manifestos) == {"e1": {FILIAL}, "e2": {MATRIZ}}
+
+
+def test_execucao_antiga_recebe_o_cnpj_dos_manifestos_e_nao_o_da_matriz():
+    antigas = [{"execucao_id": "e1", "modo": "completa"}]
+    completas, sem_manifesto = completar_execucoes_antigas(antigas, {"e1": {FILIAL}}, MATRIZ)
+    assert completas == [{"execucao_id": "e1", "modo": "completa", "cnpj": FILIAL, "rodada_id": "e1"}]
+    assert sem_manifesto == []
+
+
+def test_execucao_antiga_sem_manifesto_fica_com_a_matriz_e_e_informada():
+    antigas = [{"execucao_id": "e2", "modo": "incremental", "cnpj": None, "rodada_id": None}]
+    completas, sem_manifesto = completar_execucoes_antigas(antigas, {}, MATRIZ)
+    assert completas[0]["cnpj"] == MATRIZ
+    assert completas[0]["rodada_id"] == "e2"
+    assert sem_manifesto == ["e2"]
+
+
+def test_execucao_ja_com_cnpj_nao_muda():
+    nova = {"execucao_id": "r-x", "cnpj": FILIAL, "rodada_id": "r"}
+    assert completar_execucoes_antigas([nova], {"r-x": {MATRIZ}}, MATRIZ) == ([nova], [])
+
+
+def test_execucao_antiga_com_manifestos_de_varios_cnpjs_para():
+    with pytest.raises(ValueError, match="vários CNPJs"):
+        completar_execucoes_antigas([{"execucao_id": "e1"}], {"e1": {MATRIZ, FILIAL}}, MATRIZ)
 
 
 # --- hash e texto do registro ------------------------------------------------
