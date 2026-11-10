@@ -407,3 +407,35 @@ Contratos e compras com datas trocadas ou anos futuros devem ser mantidos e sina
 - **Por modalidade:** 740 pregões, 321 dispensas, 311 inexigibilidades, 33 concorrências e 11 credenciamentos.
 
 Como a lista nunca tem mais de um elemento, ela pode virar colunas simples na refined. Mesmo assim, convém um aviso se aparecer uma compra com mais de uma fonte.
+
+## Atualização depois da inclusão das filiais
+
+Consulta somente de leitura feita em 10/11/2026 sobre a raw depois da carga completa das 7 filiais e do incremental de 09/11/2026 (dados até 09/11/2026). Ela refaz o item 7 com a regra de versão vigente da spec da transformação: a de maior valor entre `dataAtualizacaoGlobal` e `dataAtualizacao`, com o `_extraido_em` mais recente como desempate.
+
+**Base:**
+
+| Tabela | Linhas | Registros | Com mais de uma versão | Registros de filiais |
+| --- | --- | --- | --- | --- |
+| `raw.contratacoes` | 13.696 | 13.677 | 19 | 649 |
+| `raw.contratos` | 6.797 | 6.786 | 11 | 5 |
+
+- A regra de versão vigente foi exercitada pela primeira vez: nos 30 registros com duas versões, ela escolhe a mesma versão que a regra só pela `dataAtualizacaoGlobal`, e não há empate de data.
+- As contratações com `dataAtualizacaoGlobal` anterior à `dataAtualizacao` passaram de 133 para 155. Em contratos, continuam sendo nenhuma.
+- `orgaoEntidade.cnpj` deixou de ser sempre a matriz: os registros de filiais trazem o CNPJ da própria filial.
+
+### 7. Ligação dos contratos com as compras (refeita)
+
+| Grupo | Contratos | % |
+| --- | --- | --- |
+| Compra encontrada na raw | 6.622 | 97,6 |
+| Compra da FAB anterior a 2023 | 140 | 2,1 |
+| Compra de filial da FAB fora da lista configurada | 0 | 0 |
+| Compra de outro órgão | 24 | 0,4 |
+| **Total** | **6.786** | **100** |
+
+- **Filiais:** os 180 contratos que apontavam para compras de filiais agora encontram a compra, inclusive o que aponta para uma compra de filial de 2023. Por filial: `00394429018824` 62, `00394429019715` 30, `00394429018310` 30, `00394429017933` 22, `00394429019391` 21, `00394429018409` 10 e `00394429018581` 10, num total de 185 com os 5 contratos publicados pelas próprias filiais.
+- **Contratos novos:** são 12 a mais que na investigação (5 publicados pelas filiais e 7 trazidos pelo incremental da matriz), e todos encontram a compra.
+- **Compras da FAB anteriores a 2023:** as mesmas 140, todas da matriz (139 de 2022 e 1 de 2021).
+- **Compras da FAB de 2023 em diante:** todas foram encontradas, da matriz e das 7 filiais.
+- **Outros órgãos:** os mesmos 24 contratos e os mesmos 5 CNPJs.
+- **Filial fora da lista:** nenhum contrato aponta hoje para uma compra de CNPJ com a raiz `00394429` fora da lista configurada. O grupo continua existindo, porque a lista de filiais pode estar incompleta.
