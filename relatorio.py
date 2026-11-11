@@ -65,14 +65,10 @@ class Pagina:
         return f"<div class='notas'><strong>Notas de leitura</strong><ul>{itens}</ul></div>"
 
 
-def montar(banco: Path | None = None, hoje: date | None = None) -> str:
-    k = painel.kpis(banco)
-    ano = int(k["ano_referencia"])
+def topo(k: dict, hoje: date | None) -> str:
+    """Título e saúde do dado."""
     dias, cor = painel.sinal_da_extracao(pd.Timestamp(k["extraido_em"]).to_pydatetime(), hoje)
-    p = Pagina()
-
-    # Topo: título e saúde do dado.
-    p.add(
+    return (
         "<header><div><h1>Compras da FAB no PNCP</h1>"
         "<div>Para o time de licitações de uma empresa que quer vender para a Força Aérea Brasileira.</div>"
         f"<div><strong>Foto dos indicadores com dados até {g.data(k['data_referencia'])}.</strong></div></div>"
@@ -84,23 +80,24 @@ def montar(banco: Path | None = None, hoje: date | None = None) -> str:
         f"<strong>Dados até</strong> {g.data(k['data_referencia'])}</div></header>"
     )
 
-    # Cartões.
-    p.add("<div class='cartoes'>" + "".join(
+
+def cartoes(k: dict) -> str:
+    return "<div class='cartoes'>" + "".join(
         f"<div class='cartao'><div class='titulo'>{html.escape(c['titulo'])}</div>"
         f"<div class='valor'>{html.escape(c['valor'])}</div><div class='rodape'>{html.escape(c['rodape'])}</div></div>"
         for c in g.cartoes(k)
-    ) + "</div>")
+    ) + "</div>"
 
-    p.add(f"<p>Gráficos por ano mostram {ano}, o ano da data de referência; tabelas sem filtro de segmento.</p>")
 
-    # 1. Quando agir.
+def quando_agir(p: Pagina, banco: Path | None) -> None:
     p.add("<h2>Quando agir</h2><h3>Propostas abertas</h3>")
     p.add(p.tabela(g.tabela_propostas(painel.propostas_abertas(banco=banco))))
     p.add("<h3>Contratos a vencer</h3>")
     p.add(p.tabela(g.tabela_contratos(painel.contratos_a_vencer(banco=banco))))
     p.add(p.notas("quando_agir"))
 
-    # 2. Onde está o dinheiro.
+
+def onde_esta_o_dinheiro(p: Pagina, ano: int, banco: Path | None) -> None:
     mensal = painel.compras_mensal(banco)
     p.add("<h2>Onde está o dinheiro</h2>")
     p.add(p.grafico(g.fig_compras_mensal(mensal)))
@@ -112,7 +109,8 @@ def montar(banco: Path | None = None, hoje: date | None = None) -> str:
     p.add(p.tabela(g.tabela_modalidades(painel.compras_por_modalidade(ano, banco))))
     p.add(p.notas("dinheiro"))
 
-    # 3. Contra quem.
+
+def contra_quem(p: Pagina, banco: Path | None) -> None:
     resumo = painel.fornecedores_resumo(banco)
     p.add("<h2>Contra quem</h2>")
     p.add(f"<p><strong>{g.numero(resumo['fornecedores_80_por_cento'])} de {g.numero(resumo['fornecedores'])} "
@@ -120,14 +118,16 @@ def montar(banco: Path | None = None, hoje: date | None = None) -> str:
     p.add(p.grafico(g.fig_pareto(painel.fornecedores(banco))))
     p.add(p.notas("contra_quem"))
 
-    # 4. Onde há espaço.
+
+def onde_ha_espaco(p: Pagina, ano: int, banco: Path | None) -> None:
     p.add("<h2>Onde há espaço</h2>")
     p.add("<div class='duas'><div>" + p.grafico(g.fig_sem_resultado(painel.compras_sem_resultado(ano, banco), ano))
           + "</div><div>" + p.grafico(g.fig_dispensas(painel.dispensas_com_disputa(ano, banco), ano))
           + "</div></div>")
     p.add(p.notas("espaco"))
 
-    # 5. TI e dados.
+
+def ti_e_dados(p: Pagina, ano: int, banco: Path | None) -> None:
     p.add("<h2>TI e dados</h2>")
     for segmento in ("ti", "dados"):
         p.add(p.grafico(g.fig_ti_e_dados(painel.ti_e_dados(ano, segmento, banco), ano, segmento)))
@@ -135,6 +135,20 @@ def montar(banco: Path | None = None, hoje: date | None = None) -> str:
     p.add(p.tabela(g.tabela_fornecedores_segmento(painel.ti_e_dados_fornecedores(banco))))
     p.add(p.notas("ti_e_dados"))
 
+
+def montar(banco: Path | None = None, hoje: date | None = None) -> str:
+    k = painel.kpis(banco)
+    ano = int(k["ano_referencia"])
+    p = Pagina()
+    p.add(topo(k, hoje))
+    p.add(cartoes(k))
+    p.add(f"<p>Gráficos por ano mostram {ano}, o ano da data de referência; tabelas sem filtro de segmento.</p>")
+    # As seções na ordem do painel; o primeiro gráfico leva o JavaScript do Plotly.
+    quando_agir(p, banco)
+    onde_esta_o_dinheiro(p, ano, banco)
+    contra_quem(p, banco)
+    onde_ha_espaco(p, ano, banco)
+    ti_e_dados(p, ano, banco)
     p.add(f"<footer>{html.escape(g.RODAPE)}</footer>")
     return (
         "<!DOCTYPE html><html lang='pt-BR'><head><meta charset='utf-8'>"
