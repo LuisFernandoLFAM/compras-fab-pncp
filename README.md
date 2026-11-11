@@ -14,9 +14,10 @@ Os dados passam por camadas:
 
 1. **Landing zone** (`data/landing/`): cada resposta da API salva em arquivo, exatamente como chegou.
 2. **Camada bruta** (schema `raw`): um registro por linha, com o JSON original e colunas de controle da coleta. Guarda todas as versões de cada registro, sem apagar nem alterar.
-3. **Transformação, marts e painel**: etapas seguintes.
+3. **Camada refinada** (schema `refined`): uma linha por contratação e por contrato, na versão vigente, com colunas tipadas, vazios normalizados, CPF de pessoa física mascarado, anomalias sinalizadas e cada contrato ligado à sua compra.
+4. **Marts e painel**: etapas seguintes.
 
-Por enquanto, só a etapa 1 está implementada: a landing zone e a camada `raw`.
+Por enquanto, estão implementadas as etapas 1 (landing zone e camada `raw`) e 2 (camada `refined`).
 
 ## Tabelas
 
@@ -28,7 +29,38 @@ Grão de cada tabela da camada `raw`:
 | `raw.contratos` | versão de cada contrato, com a mesma regra. |
 | `raw.execucoes` | execução do pipeline para cada CNPJ. |
 
-A escolha da versão mais recente de cada registro fica para a etapa de transformação.
+A escolha da versão vigente de cada registro é feita na camada `refined`.
+
+### Camada refinada
+
+A camada `refined` é recriada inteira a partir da `raw` a cada execução, numa única transação, e só depois de uma rodada de ingestão que terminou com sucesso para todos os CNPJs. Se algo falhar no meio, a refined anterior fica intacta ([spec da etapa 2](specs/transformacao.md)).
+
+| Tabela | Uma linha por | Chave |
+| --- | --- | --- |
+| `refined.contratacoes` | contratação, na versão vigente | `numero_controle_pncp` |
+| `refined.contratacoes_fontes` | contratação e fonte orçamentária | `numero_controle_pncp`, `ordem` |
+| `refined.contratos` | contrato, na versão vigente, com a coluna `ligacao_compra` | `numero_controle_pncp` |
+| `refined.anomalias` | ocorrência de uma regra de anomalia | (tabela, chave, regra) |
+| `refined.execucoes` | execução da transformação; acumula o histórico, não é recriada | `execucao_id` |
+
+- **Versão vigente:** a de maior data de atualização, olhando `dataAtualizacaoGlobal` e `dataAtualizacao`.
+- **Tipos:** dinheiro em decimal exato, lido do texto do JSON sem passar por ponto flutuante; um valor que não cabe no tipo faz a transformação falhar, sem arredondar.
+- **Vazios:** texto aparado; texto vazio vira nulo; nenhum nulo é preenchido.
+- **CPF:** o CPF de fornecedor pessoa física e os CPFs em texto livre são mascarados no padrão dos portais de transparência (`***.456.789-**`).
+- **Ligação com a compra:** cada contrato é classificado em compra encontrada, compra da FAB anterior ao período, compra de filial fora da lista, compra de outro órgão ou compra da FAB não encontrada. Nenhum contrato é descartado.
+
+**Anomalias:** 11 regras de dado inconsistente (por exemplo, contrato publicado antes da assinatura, homologado acima do estimado, vigência que termina antes de começar) viram linhas em `refined.anomalias`, com uma descrição dos valores envolvidos. O registro continua na refined sem correção, e anomalia nunca derruba a execução. Situações que são prática administrativa normal ficam fora da tabela; a lista e os motivos estão na decisão 7 da spec.
+
+**Contrato de dados:** a cada execução, os campos do JSON são comparados com os esperados pela spec.
+
+| Situação | Resultado |
+| --- | --- |
+| Campo novo | Aviso no log |
+| Campo descartado que passa a ter dado | Aviso no log |
+| Campo descartado ausente nos registros da última rodada | Aviso no log |
+| Campo esperado ausente nos registros da última rodada | A transformação falha, e a refined anterior fica intacta |
+
+Os avisos são contados na coluna `avisos` de `refined.execucoes`.
 
 ## Como rodar
 
@@ -44,13 +76,18 @@ cd compras-fab-pncp
 Depois:
 
 ```bash
-uv run python -m pipeline.ingestao                    # completa na 1ª vez, incremental depois
+uv run python -m pipeline                             # ingestão e, se ela terminar com sucesso, transformação
+uv run python -m pipeline --ate 2026-10-31            # aceita os mesmos parâmetros da ingestão
+uv run python -m pipeline.transformacao               # só a transformação, sobre a raw atual
+uv run python -m pipeline.ingestao                    # só a ingestão: completa na 1ª vez, incremental depois
 uv run python -m pipeline.ingestao --completa         # força a carga completa
 uv run python -m pipeline.ingestao --ate 2026-10-31   # define a data final
 uv run python -m pipeline.ingestao --reconstruir      # recria o banco a partir da landing, sem API
 ```
 
 A primeira execução de cada CNPJ faz a carga completa, de 01/01/2023 até ontem. As seguintes trazem só o que foi publicado ou atualizado desde a última execução com sucesso. Se uma execução falhar, basta rodar de novo: ela retoma das janelas que ficaram incompletas.
+
+A transformação recusa rodar se a última rodada de ingestão não terminou com sucesso para todos os CNPJs do `config.toml`.
 
 Testes:
 
@@ -72,6 +109,7 @@ Números medidos com o Comando da Aeronáutica:
 | Reconstrução a partir da landing (08/11/2026) | 0 | 21 s | banco idêntico ao original |
 | Carga completa das 7 filiais (09 e 10/11/2026) | 1.003 | cerca de 2h39min (soma de 9 execuções, incluindo 2 que falharam e foram retomadas) | 654 linhas (649 contratações e 5 contratos) |
 | Incremental da matriz num dia útil (09/11/2026) | 14 | 59 s | 61 linhas |
+| Transformação da raw inteira (10/11/2026) | 0 | 2,5 s | 13.677 contratações, 1.434 fontes, 6.786 contratos e 624 anomalias |
 
 A primeira medição da carga completa deu 9h38min, porque o computador suspendeu três vezes durante a execução; descontadas as suspensões, foram cerca de 81 minutos de trabalho. A análise está em [docs/analise-carga-completa.md](docs/analise-carga-completa.md).
 
@@ -101,4 +139,6 @@ A primeira medição da carga completa deu 9h38min, porque o computador suspende
 ## Documentação
 
 - [specs/ingestao.md](specs/ingestao.md): spec da etapa 1, com as decisões e os motivos.
+- [specs/transformacao.md](specs/transformacao.md): spec da etapa 2, com as decisões, as regras de anomalia e os motivos.
+- [docs/investigacao-transformacao.md](docs/investigacao-transformacao.md): investigação da camada raw que embasou a spec da etapa 2, incluindo a descoberta das compras publicadas pelas filiais.
 - [docs/analise-carga-completa.md](docs/analise-carga-completa.md): análise do tempo da primeira carga completa e das respostas HTTP 429.
