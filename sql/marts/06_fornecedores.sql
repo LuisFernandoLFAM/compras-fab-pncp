@@ -1,5 +1,6 @@
 -- Grão: marts.fornecedores, uma linha por fornecedor (ni_fornecedor), com todos os contratos de
---       pessoa física numa linha só ("Pessoa física", sem identificador);
+--       pessoa física numa linha só ("Pessoa física") e todos os de empresário individual em
+--       outra ("Empresário individual"), as duas sem identificador (decisão 5);
 --       marts.fornecedores_resumo, uma linha.
 -- Perguntas: quem são os maiores fornecedores da FAB e quão concentrado é o mercado?
 -- Valor contratado: soma de valor_global em todos os contratos, qualquer que seja a ligacao_compra.
@@ -8,29 +9,38 @@ CREATE OR REPLACE TABLE marts.fornecedores AS
 WITH nomes AS (
     SELECT ni_fornecedor, nome_razao_social_fornecedor AS nome, tipo_pessoa
     FROM refined.contratos
-    WHERE tipo_pessoa IS DISTINCT FROM 'PF'
+    WHERE tipo_pessoa IS DISTINCT FROM 'PF' AND NOT fornecedor_empresario_individual
     QUALIFY row_number() OVER (
         PARTITION BY ni_fornecedor
         ORDER BY data_assinatura DESC, data_publicacao_pncp DESC, numero_controle_pncp DESC
     ) = 1
 ),
+contratos AS (
+    SELECT *,
+           CASE
+               WHEN tipo_pessoa = 'PF' THEN 'Pessoa física'
+               WHEN fornecedor_empresario_individual THEN 'Empresário individual'
+           END AS grupo
+    FROM refined.contratos
+),
 agregado AS (
-    SELECT CASE WHEN tipo_pessoa = 'PF' THEN NULL ELSE ni_fornecedor END AS fornecedor_id,
-           tipo_pessoa = 'PF' AS pessoa_fisica,
+    SELECT CASE WHEN grupo IS NULL THEN ni_fornecedor END AS fornecedor_id,
+           grupo,
            count(*) AS contratos,
            sum(valor_global) AS valor_contratado
-    FROM refined.contratos
+    FROM contratos
     GROUP BY 1, 2
 ),
 ranking AS (
     SELECT a.*,
-           CASE WHEN a.pessoa_fisica THEN 'Pessoa física' ELSE n.nome END AS fornecedor_nome,
-           CASE WHEN a.pessoa_fisica THEN 'PF' ELSE n.tipo_pessoa END AS tipo_pessoa,
+           coalesce(a.grupo, n.nome) AS fornecedor_nome,
+           CASE a.grupo WHEN 'Pessoa física' THEN 'PF' WHEN 'Empresário individual' THEN 'PJ' ELSE n.tipo_pessoa END
+               AS tipo_pessoa,
            row_number() OVER (
-               ORDER BY a.valor_contratado DESC, a.contratos DESC, coalesce(a.fornecedor_id, '')
+               ORDER BY a.valor_contratado DESC, a.contratos DESC, coalesce(a.fornecedor_id, a.grupo)
            ) AS posicao
     FROM agregado a
-    LEFT JOIN nomes n ON NOT a.pessoa_fisica AND n.ni_fornecedor = a.fornecedor_id
+    LEFT JOIN nomes n ON a.grupo IS NULL AND n.ni_fornecedor = a.fornecedor_id
 ),
 pareto AS (
     SELECT *,

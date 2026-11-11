@@ -29,6 +29,7 @@ UNIDADE_2 = {
 }
 X, Y, Z = "11222333000181", "99888777000166", "55444333000122"
 CPF = "12345678909"  # inventado, com dígito verificador válido
+MEI, CPF_MEI = "33222111000199", "98765432100"  # empresário individual inventado
 
 
 def compra(seq: int, ano: int, **campos) -> dict:
@@ -99,6 +100,14 @@ CONTRATOS = [
              objetoContrato="Pagamento de servidores públicos cedidos", valorInicial=0.0, valorGlobal=0.0,
              valorParcela=0.0, dataAssinatura="2026-06-01", dataVigenciaInicio="2026-06-01", dataVigenciaFim=None,
              dataPublicacaoPncp="2026-06-01T09:00:00"),
+    # K6: empresário individual (CPF no nome), vence entre 3 e 6 meses.
+    contrato(6, niFornecedor=MEI, nomeRazaoSocialFornecedor=f"JOAO FICTICIO {CPF_MEI}",
+             objetoContrato="Serviço de pintura", valorGlobal=250.0, dataAssinatura="2026-07-01",
+             dataVigenciaInicio="2026-07-01", dataVigenciaFim="2027-03-01", dataPublicacaoPncp="2026-07-01T09:00:00"),
+    # K7: o mesmo fornecedor, num contrato antigo sem CPF no nome.
+    contrato(7, niFornecedor=MEI, nomeRazaoSocialFornecedor="JOAO FICTICIO", objetoContrato="Serviço de pintura antigo",
+             valorGlobal=100.0, dataAssinatura="2025-03-01", dataVigenciaInicio="2025-03-01",
+             dataVigenciaFim="2025-12-31", dataPublicacaoPncp="2025-03-01T09:00:00"),
 ]
 
 
@@ -215,6 +224,8 @@ def test_nenhum_mart_expoe_pessoa_fisica(construido):
             assert "PESSOA FICTICIA" not in texto
             assert "456.789" not in texto and CPF not in texto
             assert "Serviço de instrutor" not in texto
+            assert "JOAO FICTICIO" not in texto and CPF_MEI not in texto and "654.321" not in texto
+            assert "Serviço de pintura" not in texto
 
 
 # --- segmento ----------------------------------------------------------------------
@@ -337,7 +348,7 @@ def test_04_propostas_abertas(construido):
 
 def test_05_contratos_a_vencer(construido):
     v = {r["numero_controle_pncp"]: r for r in linhas(construido, "SELECT * FROM marts.contratos_a_vencer")}
-    assert set(v) == {contrato_chave(1), contrato_chave(2), contrato_chave(3)}
+    assert set(v) == {contrato_chave(1), contrato_chave(2), contrato_chave(3), contrato_chave(6)}
 
     k1 = v[contrato_chave(1)]
     assert k1["faixa_vencimento"] == "ate_3_meses"
@@ -351,6 +362,10 @@ def test_05_contratos_a_vencer(construido):
     assert (k2["fornecedor_id"], k2["fornecedor_nome"], k2["tipo_pessoa"]) == (None, "Pessoa física", "PF")
     assert k2["objeto_contrato"] is None and k2["cliente_desde"] is None and k2["tempo_de_casa_anos"] is None
 
+    k6 = v[contrato_chave(6)]
+    assert (k6["fornecedor_id"], k6["fornecedor_nome"], k6["tipo_pessoa"]) == (None, "Empresário individual", "PJ")
+    assert k6["objeto_contrato"] is None and k6["cliente_desde"] is None and k6["tempo_de_casa_anos"] is None
+
     k3 = v[contrato_chave(3)]
     assert (k3["faixa_vencimento"], k3["segmento"]) == ("6_a_12_meses", "ti")
 
@@ -358,13 +373,15 @@ def test_05_contratos_a_vencer(construido):
 def test_06_fornecedores(construido):
     ranking = linhas(construido, "SELECT * FROM marts.fornecedores ORDER BY posicao")
     assert [(f["fornecedor_id"], f["fornecedor_nome"], f["contratos"]) for f in ranking] == [
-        (Y, "EMPRESA Y", 2), (X, "FORNECEDOR X LTDA", 2), (None, "Pessoa física", 1), (Z, "EMPRESA Z", 1),
+        (Y, "EMPRESA Y", 2), (X, "FORNECEDOR X LTDA", 2), (None, "Empresário individual", 2),
+        (None, "Pessoa física", 1), (Z, "EMPRESA Z", 1),
     ]
-    assert [f["ate_80_por_cento"] for f in ranking] == [True, True, False, False]
-    assert ranking[0]["participacao"] == pytest.approx(5100 / 6800)
+    assert [f["ate_80_por_cento"] for f in ranking] == [True, True, False, False, False]
+    assert ranking[2]["tipo_pessoa"] == "PJ" and ranking[3]["tipo_pessoa"] == "PF"
+    assert ranking[0]["participacao"] == pytest.approx(5100 / 7150)
     assert ranking[-1]["participacao_acumulada"] == pytest.approx(1)
     [resumo] = linhas(construido, "SELECT * FROM marts.fornecedores_resumo")
-    assert (resumo["fornecedores"], resumo["fornecedores_80_por_cento"], resumo["valor_contratado"]) == (4, 2, 6800)
+    assert (resumo["fornecedores"], resumo["fornecedores_80_por_cento"], resumo["valor_contratado"]) == (5, 2, 7150)
 
 
 def test_07_compras_sem_resultado(construido):
@@ -398,3 +415,17 @@ def test_09_ti_e_dados(construido):
     fornecedores = linhas(construido, "SELECT * FROM marts.ti_e_dados_fornecedores")
     assert [(f["segmento"], f["posicao"], f["fornecedor_id"]) for f in fornecedores] == [("ti", 1, Y)]
     assert fornecedores[0]["participacao_no_segmento"] == pytest.approx(1)
+
+
+def test_10_kpis(construido):
+    [k] = linhas(construido, "SELECT * FROM marts.kpis")
+    assert (k["data_referencia"], k["ano_referencia"]) == (REFERENCIA, 2026)
+    assert k["extraido_em"] is not None
+    assert k["publicacao_mais_recente"] == datetime(2026, 10, 1, 10, 0)  # compra A
+    # Compras de 2026: A, B, C, D, G e H.
+    assert (k["compras_ano"], k["valor_estimado_ano"]) == (6, 104001)
+    # Só D entra no desconto (G é credenciamento).
+    assert (k["desconto_mediano_ano"], k["compras_com_desconto_ano"]) == (pytest.approx(0.2), 1)
+    assert (k["propostas_abertas"], k["valor_estimado_propostas_abertas"]) == (1, 100000)
+    assert (k["contratos_a_vencer_3_meses"], k["valor_a_vencer_3_meses"]) == (1, 900)
+    assert (k["fornecedores"], k["fornecedores_80_por_cento"]) == (5, 2)

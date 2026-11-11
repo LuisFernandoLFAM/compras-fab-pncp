@@ -180,6 +180,7 @@ COLUNAS_CONTRATOS = [
     *bloco("unidadeOrgao", "unidade_", *UNIDADE),
     *bloco("orgaoSubRogado", "orgao_sub_rogado_", *ORGAO),
     *bloco("unidadeSubRogada", "unidade_sub_rogada_", *UNIDADE),
+    Coluna("fornecedor_empresario_individual", (), "booleano"),  # calculada (decisão 6)
     Coluna("ligacao_compra", (), "texto"),  # calculada (decisão 8)
 ]
 
@@ -357,6 +358,13 @@ def mascara_cpf(digitos: str) -> str:
     return f"***.{digitos[3:6]}.{digitos[6:9]}-**"
 
 
+def tem_cpf(texto: str) -> bool:
+    """CPF formatado, ou 11 dígitos com dígito verificador válido: a mesma regra da máscara."""
+    if CPF_FORMATADO.search(texto):
+        return True
+    return any(cpf_valido(m.group()) for m in CPF_SEGUIDO.finditer(texto))
+
+
 def mascarar_texto(texto: str) -> str:
     """Mascara o CPF formatado e a sequência de 11 dígitos com dígito verificador válido."""
     texto = CPF_FORMATADO.sub(lambda m: mascara_cpf("".join(m.groups())), texto)
@@ -446,12 +454,21 @@ def linhas_contratos(
     vigentes: list[LinhaRaw], compras: set[str], cnpjs: tuple[str, ...], matriz: str,
     data_inicial: date,
 ) -> list[dict]:
-    """Linhas de refined.contratos, com o CPF mascarado e a ligação com a compra."""
-    contratos = []
+    """Linhas de refined.contratos, com o CPF mascarado e a ligação com a compra.
+
+    Empresário individual (decisão 6): fornecedor pessoa jurídica com CPF no nome em pelo
+    menos um contrato, detectado antes de mascarar; marca todos os contratos dele.
+    """
+    contratos, empresarios = [], set()
     for linha in vigentes:
         chave = linha.registro["numeroControlePNCP"].strip()
         contexto = f"contratos {chave}"
         valores = converter_colunas(COLUNAS_CONTRATOS, linha.registro, contexto)
+        nome = valores["nome_razao_social_fornecedor"]
+        if nome is not None:
+            if valores["tipo_pessoa"] == "PJ" and tem_cpf(nome):
+                empresarios.add(valores["ni_fornecedor"] or chave)
+            valores["nome_razao_social_fornecedor"] = mascarar_texto(nome)
         valores["ni_fornecedor"] = mascarar_ni_fornecedor(
             valores["ni_fornecedor"], valores["tipo_pessoa"], contexto
         )
@@ -459,4 +476,8 @@ def linhas_contratos(
             valores["numero_controle_pncp_compra"], compras, cnpjs, matriz, data_inicial, contexto
         )
         contratos.append(valores | rastro(linha, contexto))
+    for valores in contratos:
+        fornecedor = valores["ni_fornecedor"] or valores["numero_controle_pncp"]
+        empresario = valores["tipo_pessoa"] == "PJ" and fornecedor in empresarios
+        valores["fornecedor_empresario_individual"] = "true" if empresario else "false"
     return contratos
