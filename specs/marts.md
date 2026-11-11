@@ -89,7 +89,7 @@ Cada compra e cada contrato recebe um segmento: `dados`, `ti` ou `outros`. `dado
 
 **Regras, na ordem:**
 
-1. **Exclusões:** os trechos "dados bancarios", "voz e dados" e "folha de dados" são retirados do texto antes de procurar os termos de dados. Eles não impedem a classificação como `ti` por outro termo.
+1. **Exclusões:** os trechos "dados bancarios", "voz e dados", "folha de dados" e "banco de dados de precos" são retirados do texto antes de procurar os termos de dados. O último vem da referência à tabela de preços de obras (SINAPI) em objetos de manutenção predial, que a primeira amostra classificou como `dados`. Eles não impedem a classificação como `ti` por outro termo.
 2. **`dados`:** o texto tem um termo específico de dados. A palavra "dados" sozinha nunca classifica.
 3. **`ti`:** o texto tem um termo de TI ou, nos contratos, `categoria_processo_id = 3` ("Informática (TIC)").
 4. **`outros`:** nenhuma das anteriores.
@@ -98,6 +98,8 @@ Cada compra e cada contrato recebe um segmento: `dados`, `ti` ou `outros`. `dado
 | --- | --- |
 | `dados` | business intelligence, inteligencia de negocio(s), power bi, powerbi, qlik, tableau, banco(s) de dados, sgbd, analytics, ciencia de dados, cientista de dados, engenharia de dados, engenheiro de dados, data warehouse, datawarehouse, data lake, datalake, etl, big data, mineracao de dados, data science, governanca de dados |
 | `ti` | tecnologia da informacao, tecnologia de informacao, ti, tic, informatica, software(s), sistema(s) de informacao, sistema(s) informatizado(s), fabrica de software, desenvolvimento de sistema(s), microcomputador(es), computador(es), notebook(s), desktop(s), servidor(es) de rede, storage, firewall, seguranca da informacao, ciberseguranca, seguranca cibernetica, antivirus, computacao em nuvem, cloud, data center, datacenter, rede de computadores, cabeamento estruturado, rede logica, aplicativo(s) |
+
+**Capacitação:** o segmento inclui capacitação em TI e dados (cursos, pós-graduações, MBAs), que mostra demanda de formação, e não só fornecimento de tecnologia. Esses objetos não são excluídos.
 
 **Auditoria:** `marts.segmento_objeto` guarda, para cada compra e cada contrato, o segmento e o termo que casou (ou `categoria_processo: Informática (TIC)`), para conferir por que cada registro foi classificado.
 
