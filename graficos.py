@@ -126,9 +126,9 @@ NOTAS = {
 }
 
 RODAPE = (
-    "Fonte: API de consulta do PNCP. Cobertura: matriz e 7 filiais do Comando da Aeronáutica; a lista de "
-    "filiais pode estar incompleta, e as filiais só publicaram compras em 2024 e 2025. Definições em "
-    "specs/marts.md e specs/painel.md."
+    "Fonte: PNCP - Portal Nacional de Contratações Públicas. Cobertura: matriz e 7 filiais do Comando da "
+    "Aeronáutica; a lista de filiais pode estar incompleta, e as filiais só publicaram compras em 2024 e "
+    "2025. Definições em specs/marts.md e specs/painel.md."
 )
 
 

@@ -252,6 +252,24 @@ def test_conferencia_de_somas_desfaz_a_transacao(con, cfg_teste, monkeypatch):
     assert "conferência de somas" in execucoes(con)[-1][-1]
 
 
+def test_erro_inesperado_registra_falha_sem_engolir(con, cfg_teste, monkeypatch, caplog):
+    raw_padrao(con)
+    rodada_ok(con, cfg_teste)
+    transformacao.executar(con, cfg_teste)
+    antes = {t: conteudo(con, t) for t in transformacao.TABELAS}
+
+    def quebrar(con):
+        raise RuntimeError("bug de teste")
+
+    monkeypatch.setattr(transformacao, "registrar_anomalias", quebrar)
+    assert transformacao.executar(con, cfg_teste) == 1
+
+    assert {t: conteudo(con, t) for t in transformacao.TABELAS} == antes
+    status, *_, mensagem = execucoes(con)[-1]
+    assert (status, mensagem) == ("falha", "RuntimeError: bug de teste")
+    assert any(r.exc_info and r.exc_info[0] is RuntimeError for r in caplog.records)
+
+
 # --- anomalias e contrato de dados no fluxo ------------------------------------------------
 
 

@@ -444,6 +444,10 @@ def executar(
     except KeyboardInterrupt:
         status, mensagem, codigo = "falha", "interrompida pelo usuário", 130
     except Exception as e:
+        # Guarda de topo, mantido de propósito: um erro não previsto (DuckDB, disco, bug) também
+        # precisa fechar a execução como falha, senão o finally a gravaria como sucesso. Nada é
+        # engolido: o traceback vai para o log, a mensagem para mensagem_erro e o código 1 encerra
+        # o comando e impede a transformação de rodar.
         status, mensagem, codigo = "falha", f"{type(e).__name__}: {e}", 1
         log.exception("erro inesperado")
     finally:

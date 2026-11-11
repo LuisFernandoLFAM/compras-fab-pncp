@@ -211,6 +211,25 @@ def test_reconstrucao_que_falha_nao_apaga_o_banco(ambiente, monkeypatch):
     ]
 
 
+def test_erro_inesperado_registra_falha_sem_engolir(ambiente, monkeypatch, caplog):
+    assert ingestao.main(["--ate", COMPLETA_ATE]) == 0
+    antes = raw_completa(ambiente)
+
+    def quebrar(*args):
+        raise RuntimeError("bug de teste")
+
+    monkeypatch.setattr(ingestao, "ClienteAPI", ApiProibida)
+    monkeypatch.setattr(ingestao, "reconstruir_raw", quebrar)
+    assert ingestao.main(["--reconstruir"]) == 1
+
+    assert raw_completa(ambiente) == antes
+    [(status, mensagem)] = consultar(
+        ambiente, "SELECT status, mensagem_erro FROM raw.execucoes WHERE modo = 'reconstrucao'"
+    )
+    assert (status, mensagem) == ("falha", "RuntimeError: bug de teste")
+    assert any(r.exc_info and r.exc_info[0] is RuntimeError for r in caplog.records)
+
+
 @pytest.mark.parametrize("argumentos", [["--reconstruir", "--completa"], ["--reconstruir", "--ate", "2026-10-01"]])
 def test_reconstruir_nao_combina_com_outros_parametros(ambiente, argumentos):
     assert ingestao.main(argumentos) == 2

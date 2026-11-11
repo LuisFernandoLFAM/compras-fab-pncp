@@ -20,6 +20,19 @@ Os dados passam por camadas:
 
 As quatro etapas estão implementadas.
 
+## Fonte e termos de uso
+
+Os dados vêm da API de consulta do PNCP e são dados abertos: podem ser reutilizados, desde que a fonte seja citada. A base legal:
+
+- **[Lei nº 14.133/2021](https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2021/lei/l14133.htm), art. 174, § 4º:** "O PNCP adotará o formato de dados abertos e observará as exigências previstas na Lei nº 12.527, de 18 de novembro de 2011." A Lei nº 12.527/2011 é a Lei de Acesso à Informação.
+- **[Decreto nº 8.777/2016](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2016/decreto/d8777.htm), que institui a Política de Dados Abertos do Poder Executivo federal:** o art. 2º, III, define dados abertos como dados acessíveis ao público, em formato aberto, processáveis por máquina e disponibilizados sob licença aberta, que permite a livre utilização, o consumo ou o cruzamento e exige apenas que se credite a autoria ou a fonte. O art. 3º, IV, põe entre as diretrizes da política o reuso irrestrito das bases publicadas em formato aberto.
+
+Não encontrei uma página oficial de termos de uso dos dados no site do PNCP (busca feita em 11/11/2026). A página de [Dados Abertos do PNCP](https://www.gov.br/pncp/pt-br/acesso-a-informacao/copy_of_dados-abertos) diz que as consultas pela API podem ser feitas "sem necessidade de cadastro ou login" e que o usuário pode baixar os dados e manipulá-los. O rodapé do portal publica o conteúdo do site sob a licença [Creative Commons Atribuição-SemDerivações 3.0](https://creativecommons.org/licenses/by-nd/3.0/deed.pt_BR), sem dizer se ela vale também para os dados da API; este projeto transforma os dados com base na lei e no decreto acima.
+
+Forma de citação:
+
+> Fonte: PNCP - Portal Nacional de Contratações Públicas
+
 ## Tabelas
 
 Grão de cada tabela da camada `raw`:
@@ -101,7 +114,7 @@ O painel (`app.py`, em Streamlit) e o relatório (`docs/relatorio.html`) mostram
 
 A tela não calcula nada: todo número vem pronto de um mart, e os números dos cartões vêm do mart `10_kpis`. `painel.py` só faz SELECT nos marts, com uma conexão somente leitura aberta e fechada a cada consulta; `graficos.py` monta as figuras usadas pelo painel e pelo relatório; o botão "Recarregar dados" lê os marts de novo depois de rodar o pipeline.
 
-O relatório é uma foto autocontida (abre sem internet) do ano da data de referência, mostrada no topo. Ele fica versionado em `docs/relatorio.html` para quem visita o repositório ver os indicadores sem rodar nada; para vê-lo, baixe o arquivo e abra no navegador.
+O relatório é uma foto autocontida (abre sem internet) do ano da data de referência, mostrada no topo. O `relatorio.py` o grava em `docs/relatorio.html`, que fica fora do controle de versão por ser um arquivo gerado de cerca de 5,5 MB ([decisão 5 da spec](specs/painel.md#5-relatório-html-autocontido)). Para quem visita o repositório ver os indicadores sem rodar nada, o relatório é publicado como arquivo anexado a uma Release, na [página de Releases](https://github.com/LuisFernandoLFAM/compras-fab-pncp/releases); baixe o `relatorio.html` da Release mais recente e abra no navegador.
 
 ## Como rodar
 
@@ -196,6 +209,6 @@ A primeira medição da carga completa deu 9h38min, porque o computador suspende
 - [specs/transformacao.md](specs/transformacao.md): spec da etapa 2, com as decisões, as regras de anomalia e os motivos.
 - [specs/marts.md](specs/marts.md): spec da etapa 3, com a persona, os termos, os marts e as notas de leitura.
 - [specs/painel.md](specs/painel.md): spec da etapa 4, com o rascunho do painel e as decisões.
-- [docs/relatorio.html](docs/relatorio.html): foto dos indicadores, gerada pelo `relatorio.py`.
+- [Releases](https://github.com/LuisFernandoLFAM/compras-fab-pncp/releases): o `relatorio.html`, foto dos indicadores gerada pelo `relatorio.py`, anexado a cada Release.
 - [docs/investigacao-transformacao.md](docs/investigacao-transformacao.md): investigação da camada raw que embasou a spec da etapa 2, incluindo a descoberta das compras publicadas pelas filiais.
 - [docs/analise-carga-completa.md](docs/analise-carga-completa.md): análise do tempo da primeira carga completa e das respostas HTTP 429.

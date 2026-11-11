@@ -347,6 +347,10 @@ def executar(con: duckdb.DuckDBPyConnection, cfg: Config) -> int:
     except KeyboardInterrupt:
         status, mensagem, codigo = "falha", "interrompida pelo usuário", 130
     except Exception as e:
+        # Guarda de topo, mantido de propósito: um erro não previsto (DuckDB, disco, bug) também
+        # precisa fechar a execução como falha, senão o finally a gravaria como sucesso. Nada é
+        # engolido: o traceback vai para o log, a mensagem para mensagem_erro e o código 1 encerra
+        # o comando e impede os marts de rodar. A transação já foi desfeita em transformar().
         status, mensagem, codigo = "falha", f"{type(e).__name__}: {e}", 1
         log.exception("erro inesperado")
     finally:

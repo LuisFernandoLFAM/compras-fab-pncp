@@ -217,6 +217,21 @@ def test_falha_no_meio_mantem_os_marts_anteriores(construido, tmp_path):
     assert "99_quebrado.sql" in ultima["mensagem_erro"]
 
 
+def test_erro_inesperado_registra_falha_sem_engolir(construido, monkeypatch, caplog):
+    antes = conteudo(construido)
+
+    def quebrar(con):
+        raise RuntimeError("bug de teste")
+
+    monkeypatch.setattr(marts, "conferir", quebrar)
+    assert marts.executar(construido) == 1
+
+    assert conteudo(construido) == antes
+    ultima = linhas(construido, "SELECT status, mensagem_erro FROM marts.execucoes ORDER BY inicio DESC LIMIT 1")[0]
+    assert ultima == {"status": "falha", "mensagem_erro": "RuntimeError: bug de teste"}
+    assert any(r.exc_info and r.exc_info[0] is RuntimeError for r in caplog.records)
+
+
 def test_nenhum_mart_expoe_pessoa_fisica(construido):
     for tabela in marts.tabelas_dos_marts(construido):
         for linha in construido.execute(f"SELECT * FROM marts.{tabela}").fetchall():
