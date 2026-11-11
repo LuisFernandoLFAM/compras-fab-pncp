@@ -171,7 +171,13 @@ Em `app.py`, a leitura dos marts fica em funções com `st.cache_data`. Um botã
 
 **Custo da decisão:** o arquivo fica com alguns megabytes, por causa do Plotly embutido; o relatório é uma foto do dia, sem os filtros do painel.
 
-**Versionamento:** `docs/relatorio.html` fica versionado no git, como uma foto dos indicadores na data de referência mostrada no topo. Assim, quem visita o repositório vê os indicadores sem rodar nada, mesmo sem o banco, que continua fora do git. A foto só muda quando alguém gera o relatório de novo e faz commit; a data no topo diz de quando ela é.
+**Publicação:** `docs/relatorio.html` fica fora do controle de versão (está no `.gitignore`) e é publicado como arquivo anexado a uma Release do GitHub, na página de Releases do repositório. Cada Release é uma foto dos indicadores na data de referência mostrada no topo do relatório. Quem visita o repositório baixa o relatório da Release mais recente e vê os indicadores sem rodar nada, mesmo sem o banco, que continua fora do git.
+
+**Motivo da publicação por Release:** o relatório é um arquivo gerado, de cerca de 5,5 MB, e um arquivo gerado desse tamanho não deve ser versionado (feedback do professor): cada nova geração somaria alguns megabytes ao histórico, e o diff não diz nada a quem revisa. O arquivo sai do controle de versão com `git rm --cached`, sem reescrever o histórico; as versões já commitadas continuam no histórico.
+
+**Alternativas consideradas:** manter o relatório versionado em `docs/` (a escolha anterior desta decisão), descartado pelo motivo acima; publicar no GitHub Pages, descartado porque exigiria versionar o arquivo num branch ou montar um fluxo de publicação, fora do escopo.
+
+**Custo da publicação por Release:** publicar um relatório novo é um passo manual a mais (gerar o arquivo e anexá-lo a uma Release); o repositório em si não mostra os indicadores sem esse download.
 
 ### 6. Pessoa física, empresário individual e texto livre
 
@@ -198,6 +204,7 @@ O painel e o relatório leem os marts como estão; para dados novos, rode antes 
 - [ ] Os cinco cartões e as cinco seções aparecem na ordem do rascunho, cada gráfico com as suas notas de leitura.
 - [ ] O botão "Recarregar dados" lê os marts de novo.
 - [ ] `docs/relatorio.html` abre sem internet, mostra a data de referência no topo e tem as mesmas seções e gráficos do painel.
+- [ ] `docs/relatorio.html` está no `.gitignore`, fora do controle de versão, e o README aponta para a página de Releases, onde o relatório é publicado.
 - [ ] Nenhum identificador de fornecedor, nem nome ou objeto de contrato de pessoa física ou de empresário individual, aparece no painel ou no relatório, e nenhum CPF aparece no relatório (conferido por contagem).
 - [ ] Os testes cobrem as funções de `painel.py` e `graficos.py` com um banco temporário, sem abrir o banco do projeto.
 - [ ] O README explica como abrir o painel e gerar o relatório.
