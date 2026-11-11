@@ -16,9 +16,9 @@ Os dados passam por camadas:
 2. **Camada bruta** (schema `raw`): um registro por linha, com o JSON original e colunas de controle da coleta. Guarda todas as versões de cada registro, sem apagar nem alterar.
 3. **Camada refinada** (schema `refined`): uma linha por contratação e por contrato, na versão vigente, com colunas tipadas, vazios normalizados, CPF de pessoa física mascarado, anomalias sinalizadas e cada contrato ligado à sua compra.
 4. **Marts** (schema `marts`): tabelas de indicadores prontas para o time de licitações de uma empresa que quer vender para a FAB.
-5. **Painel**: etapa seguinte.
+5. **Painel** (`app.py`) e **relatório** (`docs/relatorio.html`): os marts em gráficos, para quem decide onde e quando disputar.
 
-Por enquanto, estão implementadas as etapas 1 (landing zone e camada `raw`), 2 (camada `refined`) e 3 (marts).
+As quatro etapas estão implementadas.
 
 ## Tabelas
 
@@ -47,7 +47,8 @@ A camada `refined` é recriada inteira a partir da `raw` a cada execução, numa
 - **Versão vigente:** a de maior data de atualização, olhando `dataAtualizacaoGlobal` e `dataAtualizacao`.
 - **Tipos:** dinheiro em decimal exato, lido do texto do JSON sem passar por ponto flutuante; um valor que não cabe no tipo faz a transformação falhar, sem arredondar.
 - **Vazios:** texto aparado; texto vazio vira nulo; nenhum nulo é preenchido.
-- **CPF:** o CPF de fornecedor pessoa física e os CPFs em texto livre são mascarados no padrão dos portais de transparência (`***.456.789-**`).
+- **CPF:** o CPF de fornecedor pessoa física e os CPFs em texto livre e no nome do fornecedor são mascarados no padrão dos portais de transparência (`***.456.789-**`).
+- **Empresário individual:** o MEI é registrado no PNCP como pessoa jurídica com o nome "nome da pessoa + CPF"; a coluna `fornecedor_empresario_individual` marca todos os contratos desses fornecedores (164 contratos de 93 fornecedores).
 - **Ligação com a compra:** cada contrato é classificado em compra encontrada, compra da FAB anterior ao período, compra de filial fora da lista, compra de outro órgão ou compra da FAB não encontrada. Nenhum contrato é descartado.
 
 **Anomalias:** 11 regras de dado inconsistente (por exemplo, contrato publicado antes da assinatura, homologado acima do estimado, vigência que termina antes de começar) viram linhas em `refined.anomalias`, com uma descrição dos valores envolvidos. O registro continua na refined sem correção, e anomalia nunca derruba a execução. Situações que são prática administrativa normal ficam fora da tabela; a lista e os motivos estão na decisão 7 da spec.
@@ -82,9 +83,21 @@ Os termos usados (compra, desconto, proposta aberta, compra provavelmente sem re
 | 09 | `marts.ti_e_dados`, `marts.ti_e_dados_fornecedores` | Quanto a FAB compra de TI e de dados, onde, o que está aberto e quem fornece? |
 
 - **Segmento do objeto:** `marts.segmento_objeto` classifica cada compra e cada contrato em `dados`, `ti` ou `outros`, por palavras-chave no objeto, e guarda o termo que casou, para auditoria. É uma classificação heurística: a categoria oficial "Informática (TIC)" cobria só 18 de 151 contratos de software numa amostra. O segmento inclui capacitação em TI e dados (cursos, pós-graduações, MBAs), que mostra demanda de formação, e não só fornecimento de tecnologia.
-- **Pessoa física:** nos marts, o fornecedor pessoa física aparece sempre agregado como "Pessoa física", sem identificador e sem o objeto do contrato.
+- **Pessoa física e empresário individual:** nos marts, o fornecedor pessoa física aparece sempre agregado como "Pessoa física", e o empresário individual numa linha própria, "Empresário individual", ambos sem identificador, sem nome e sem o objeto do contrato.
 - **Conferências:** o total de compras e de contratos, uma linha de segmento por registro e o valor contratado total precisam bater com a refined; senão, os marts anteriores ficam intactos.
 - **Notas de leitura:** cada indicador deixa algo de fora (compras com estimado zero, homologado nulo, contratos sem compra encontrada, o mês corrente incompleto). A lista está na spec.
+
+### Painel e relatório
+
+O painel (`app.py`, em Streamlit) e o relatório (`docs/relatorio.html`) mostram os marts para o time de licitações, em layout em Z ([spec da etapa 4](specs/painel.md)):
+
+- **Topo:** a saúde do dado, com a data da extração, a publicação mais recente, um sinal de cor pela idade da extração (verde até 7 dias, amarelo até 30, vermelho acima) e a data de referência.
+- **Cartões:** compras no ano, propostas abertas, contratos a vencer em 3 meses, desconto mediano e quantos fornecedores fazem 80% do valor.
+- **Seções:** Quando agir (propostas abertas e contratos a vencer com o incumbente, filtráveis por segmento), Onde está o dinheiro, Contra quem, Onde há espaço e TI e dados, cada gráfico com as suas notas de leitura.
+
+A tela não calcula nada: todo número vem pronto de um mart, e os números dos cartões vêm do mart `10_kpis`. `painel.py` só faz SELECT nos marts, com uma conexão somente leitura aberta e fechada a cada consulta; `graficos.py` monta as figuras usadas pelo painel e pelo relatório; o botão "Recarregar dados" lê os marts de novo depois de rodar o pipeline.
+
+O relatório é uma foto autocontida (abre sem internet) do ano da data de referência, mostrada no topo. Ele fica versionado em `docs/relatorio.html` para quem visita o repositório ver os indicadores sem rodar nada; para vê-lo, baixe o arquivo e abra no navegador.
 
 ## Como rodar
 
@@ -104,6 +117,8 @@ uv run python -m pipeline                             # ingestão, transformaç�
 uv run python -m pipeline --ate 2026-10-31            # aceita os mesmos parâmetros da ingestão
 uv run python -m pipeline.transformacao               # só a transformação, sobre a raw atual
 uv run python -m pipeline.marts                       # só os marts, sobre a refined atual
+uv run streamlit run app.py                           # abre o painel no navegador
+uv run python relatorio.py                            # gera docs/relatorio.html
 uv run python -m pipeline.ingestao                    # só a ingestão: completa na 1ª vez, incremental depois
 uv run python -m pipeline.ingestao --completa         # força a carga completa
 uv run python -m pipeline.ingestao --ate 2026-10-31   # define a data final
@@ -136,6 +151,7 @@ Números medidos com o Comando da Aeronáutica:
 | Incremental da matriz num dia útil (09/11/2026) | 14 | 59 s | 61 linhas |
 | Transformação da raw inteira (10/11/2026) | 0 | 2,5 s | 13.677 contratações, 1.434 fontes, 6.786 contratos e 624 anomalias |
 | Marts sobre a refined inteira (10/11/2026) | 0 | 3,9 s | 14 tabelas recriadas, das quais 20.463 linhas de segmento e 3.575 fornecedores |
+| Relatório HTML (10/11/2026) | 0 | 0,9 s | `docs/relatorio.html`, 5,7 MB com o Plotly embutido |
 
 A primeira medição da carga completa deu 9h38min, porque o computador suspendeu três vezes durante a execução; descontadas as suspensões, foram cerca de 81 minutos de trabalho. A análise está em [docs/analise-carga-completa.md](docs/analise-carga-completa.md).
 
@@ -162,17 +178,20 @@ A primeira medição da carga completa deu 9h38min, porque o computador suspende
 
 **Sondagem com janelas anuais.** A sondagem foi desenhada com janelas anuais, mas o endpoint de contratos da API desiste de consultas anuais pesadas com HTTP 500 depois de cerca de 55 s. Percebi quando a carga parou duas vezes no mesmo ponto. Corrigi para que uma sondagem que falha caia para a consulta mês a mês, sem pular nenhum mês.
 
+**CPF dentro do nome do empresário individual.** A decisão 6 da transformação mascarava o CPF no texto livre e no identificador da pessoa física, mas não previu CPF dentro do nome do fornecedor: o microempreendedor individual (MEI) é registrado no PNCP como pessoa jurídica, com o nome "nome da pessoa + CPF". Eram 148 contratos de 93 fornecedores, e um deles chegou ao relatório HTML como incumbente de um contrato a vencer. Percebi na conferência por contagem do relatório, antes de publicá-lo. Corrigi na transformação, que passou a mascarar o CPF também no nome e a marcar o empresário individual, e nos marts, que o agregam numa linha própria, "Empresário individual", sem nome, objeto nem tempo de casa.
+
 ## Próximos passos
 
 - **Modelo estrela** (fatos e dimensões), adiado nos marts por prazo.
 - **Recorrência de compras por unidade:** que objetos cada unidade compra todo ano, para antecipar a próxima compra.
 - **Atas e adesões:** atas de registro de preço e compras feitas por adesão.
-- **Painel**, com as notas de leitura de cada indicador.
 
 ## Documentação
 
 - [specs/ingestao.md](specs/ingestao.md): spec da etapa 1, com as decisões e os motivos.
 - [specs/transformacao.md](specs/transformacao.md): spec da etapa 2, com as decisões, as regras de anomalia e os motivos.
 - [specs/marts.md](specs/marts.md): spec da etapa 3, com a persona, os termos, os marts e as notas de leitura.
+- [specs/painel.md](specs/painel.md): spec da etapa 4, com o rascunho do painel e as decisões.
+- [docs/relatorio.html](docs/relatorio.html): foto dos indicadores, gerada pelo `relatorio.py`.
 - [docs/investigacao-transformacao.md](docs/investigacao-transformacao.md): investigação da camada raw que embasou a spec da etapa 2, incluindo a descoberta das compras publicadas pelas filiais.
 - [docs/analise-carga-completa.md](docs/analise-carga-completa.md): análise do tempo da primeira carga completa e das respostas HTTP 429.
