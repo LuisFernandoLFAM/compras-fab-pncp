@@ -146,11 +146,15 @@ A conversão não encurta nomes nem tira redundâncias (`unidadeOrgao.nomeUnidad
 
 - **CPF em `ni_fornecedor`:** nos contratos com `tipo_pessoa = 'PF'`, o CPF é mascarado no padrão usado pelo governo nos portais de transparência, que mostra só os 6 dígitos do meio: `***.456.789-**`. Se um contrato de pessoa física tiver em `ni_fornecedor` algo que não sejam 11 dígitos, a transformação falha, porque não há como mascarar com segurança.
 - **CPF em texto livre:** nas colunas de texto livre (`objeto_compra`, `objeto_contrato`, `informacao_complementar` e `justificativa_presencial`) de todos os registros, qualquer CPF é mascarado no mesmo padrão. Conta como CPF o formatado (`000.000.000-00`) e a sequência de 11 dígitos com dígito verificador válido que não faça parte de uma sequência maior de dígitos.
-- **Nome:** `nome_razao_social_fornecedor` é mantido como veio, inclusive o de pessoa física.
+- **CPF no nome do fornecedor:** em `nome_razao_social_fornecedor` de todos os contratos, qualquer CPF é mascarado, com a mesma regra do texto livre.
+- **Nome:** fora o CPF, `nome_razao_social_fornecedor` é mantido como veio, inclusive o de pessoa física.
+- **Empresário individual:** `refined.contratos` tem a coluna `fornecedor_empresario_individual`, verdadeira em todos os contratos de um fornecedor (`ni_fornecedor`) pessoa jurídica que tenha CPF no nome em pelo menos um contrato, detectado antes de mascarar; falsa nos demais.
 
 **Motivo:** 25 contratos têm fornecedor pessoa física, com CPF completo e válido em `niFornecedor`, e um deles repete o CPF no texto livre. A máscara protege o CPF e, junto com o nome, ainda distingue um fornecedor do outro. O CPF completo fica só na raw, que está fora do repositório (`*.duckdb` no `.gitignore`).
 
-**Requisito para o painel (etapa 4):** fornecedor pessoa física aparece sempre agregado, nunca individualizado, e o texto livre dos contratos de pessoa física não é exibido.
+**Motivo do CPF no nome e do empresário individual:** o microempreendedor individual (MEI) é registrado no PNCP como pessoa jurídica, com o nome "nome da pessoa + CPF". A primeira versão desta decisão não previu isso: na refined de 10/11/2026, 148 contratos de 93 fornecedores pessoa jurídica traziam um CPF completo no nome, e um deles chegou ao relatório HTML do painel. A coluna marca o fornecedor inteiro, e não só o contrato, porque 5 desses fornecedores mudaram de nome entre contratos: 16 contratos deles não têm CPF no nome, mas o nome continua sendo o de uma pessoa. Com isso, a coluna é verdadeira em 164 contratos.
+
+**Requisito para o painel (etapa 4):** fornecedor pessoa física e empresário individual aparecem sempre agregados, nunca individualizados, e o texto livre dos contratos deles não é exibido.
 
 **Alternativas consideradas:**
 
@@ -163,7 +167,8 @@ A conversão não encurta nomes nem tira redundâncias (`unidadeOrgao.nomeUnidad
 - A refined continua tendo dado pessoal (o nome e 6 dígitos do CPF), por isso o requisito do painel.
 - A refined não pode ser cruzada com fontes externas pelo CPF.
 - A busca por padrões não encontra nomes de pessoas em texto livre. Esse risco continua existindo e é coberto só pela regra do painel.
-- Uma sequência de 11 dígitos com dígito verificador válido que não seja CPF também é mascarada.
+- Uma sequência de 11 dígitos com dígito verificador válido que não seja CPF também é mascarada, inclusive num nome de fornecedor; o fornecedor seria marcado como empresário individual sem ser.
+- O nome do empresário individual continua na refined, com o CPF mascarado; ele só sai nos marts e no painel.
 
 ### 7. Anomalias: registradas numa tabela, nunca corrigidas
 
@@ -439,6 +444,7 @@ Schema `refined` no arquivo `compras_fab.duckdb`. Nas três tabelas principais, 
 | `unidadeSubRogada.municipioNome` | `unidade_sub_rogada_municipio_nome` | `VARCHAR` |
 | `unidadeSubRogada.ufSigla` | `unidade_sub_rogada_uf_sigla` | `VARCHAR` |
 | `unidadeSubRogada.ufNome` | `unidade_sub_rogada_uf_nome` | `VARCHAR` |
+| (calculada, decisão 6) | `fornecedor_empresario_individual` | `BOOLEAN` |
 | (calculada, decisão 8) | `ligacao_compra` | `VARCHAR` |
 | (raw) `_hash`, `_extraido_em`, `_execucao_id` | `_hash`, `_extraido_em`, `_execucao_id` | `VARCHAR`, `TIMESTAMP`, `VARCHAR` |
 
@@ -480,7 +486,7 @@ A transformação sozinha segue a mesma pré-condição: recusa rodar se a últi
 - [ ] As quatro conferências da decisão 10 passam sobre a raw real.
 - [ ] Uma falha no meio da transformação deixa a refined anterior intacta e fica registrada em `refined.execucoes`.
 - [ ] Rodar a transformação duas vezes sobre a mesma raw gera tabelas idênticas.
-- [ ] Nenhum CPF completo aparece na refined: os 25 contratos de pessoa física têm `ni_fornecedor` mascarado, e o CPF do texto livre também.
+- [ ] Nenhum CPF completo aparece na refined: os 25 contratos de pessoa física têm `ni_fornecedor` mascarado, e o CPF do texto livre e do nome do fornecedor também.
 - [ ] Um valor com mais casas decimais que o tipo, ou que não caiba nele, faz a transformação falhar, sem arredondar.
 - [ ] Nenhum nulo da raw vira zero, `false` ou texto padrão, e nenhum texto vazio chega à refined.
 - [ ] `refined.anomalias` tem as regras registradas da decisão 7, e o log mostra a contagem por regra.

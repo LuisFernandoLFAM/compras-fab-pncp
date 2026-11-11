@@ -32,7 +32,7 @@ Os termos abaixo são fechados: todo mart usa exatamente estas definições.
 | Dispensa com disputa | Modalidade 8 com `data_abertura_proposta` preenchida. | 3.008 das 3.710 dispensas |
 | Mês | O da data de publicação no PNCP (`data_publicacao_pncp`), para compras e contratos. O ano segue a mesma regra. | |
 | Contrato a vencer | `data_vigencia_fim` posterior à data de referência e até 12 meses depois dela, inclusive. A vigência sem fim fica de fora, com nota. | 1.372 em 12 meses; 21 sem fim |
-| Fornecedor | Identificado por `ni_fornecedor`. O nome exibido é o do contrato mais recente (maior `data_assinatura`, depois maior `data_publicacao_pncp`). Pessoa física é sempre agregada como "Pessoa física" (decisão 6 da transformação). | 3.575 fornecedores, contando "Pessoa física" como um |
+| Fornecedor | Identificado por `ni_fornecedor`. O nome exibido é o do contrato mais recente (maior `data_assinatura`, depois maior `data_publicacao_pncp`). Pessoa física é sempre agregada como "Pessoa física", e empresário individual (`fornecedor_empresario_individual`) como "Empresário individual" (decisão 6 da transformação). | 3.483 fornecedores, contando "Pessoa física" e "Empresário individual" como um cada |
 | Incumbente | O fornecedor do contrato a vencer. | |
 | Tempo de casa | Tempo desde o primeiro contrato (menor `data_assinatura`) desse fornecedor com a mesma unidade (`unidade_codigo_unidade`) até a data de referência. | |
 | Segmento | Classificação heurística do objeto: `dados`, `ti` ou `outros` (decisão 4). `dados` é um subconjunto de `ti`. | |
@@ -56,7 +56,7 @@ Cada mart é uma tabela já agregada no grão da pergunta que responde, montada 
 - **Recriação inteira:** a cada execução, o schema `marts` é recriado do zero a partir da refined, numa única transação. Se algo falhar no meio, os marts anteriores ficam intactos. A exceção é `marts.execucoes`, que acumula o histórico.
 - **Pré-condição:** os marts se recusam a rodar se a última execução da transformação (a linha mais recente de `refined.execucoes`) não terminou com sucesso.
 - **Data de referência:** gravada em `marts.referencia`, a partir da rodada de ingestão usada pela última transformação (`rodada_ingestao`). Todo mart que depende de data lê dessa tabela, nunca da data do relógio.
-- **Ordem:** os arquivos de `sql/marts/` rodam em ordem de nome. O `00_segmento_objeto.sql` roda primeiro, porque os marts 04, 05 e 09 dependem dele.
+- **Ordem:** os arquivos de `sql/marts/` rodam em ordem de nome. O `00_segmento_objeto.sql` roda primeiro, porque os marts 04, 05 e 09 dependem dele, e o `10_kpis.sql` roda por último, porque lê os marts 04, 05 e 06.
 - **Comando único:** `python -m pipeline` passa a rodar ingestão, transformação e marts, cada etapa só se a anterior terminar com sucesso.
 
 **Conferências que fazem os marts falharem:**
@@ -113,16 +113,16 @@ Cada compra e cada contrato recebe um segmento: `dados`, `ti` ou `outros`. `dado
 - A lista de termos precisa de revisão com uma amostra dos resultados; a primeira revisão é parte da definição de pronto.
 - O segmento de um contrato não herda o da compra ligada: cada um é classificado pelo próprio objeto.
 
-### 5. Pessoa física nos marts
+### 5. Pessoa física e empresário individual nos marts
 
-Nos marts, o fornecedor pessoa física aparece sempre como "Pessoa física", sem `ni_fornecedor`.
+Nos marts, o fornecedor pessoa física aparece sempre como "Pessoa física", e o empresário individual (`fornecedor_empresario_individual` verdadeiro na refined) como "Empresário individual", numa linha própria, separada da de pessoa física. Nos dois casos, sem `ni_fornecedor` e sem nome.
 
-- **Ranking de fornecedores (06 e 09):** todos os contratos de pessoa física formam uma única linha.
-- **Contratos a vencer (05):** o contrato de pessoa física aparece, com o incumbente "Pessoa física", sem objeto e sem tempo de casa.
+- **Ranking de fornecedores (06 e 09):** todos os contratos de pessoa física formam uma única linha, e todos os de empresário individual, outra.
+- **Contratos a vencer (05):** o contrato aparece, com o incumbente "Pessoa física" ou "Empresário individual", sem objeto e sem tempo de casa.
 
-**Motivo:** cumpre o requisito da decisão 6 da transformação (fornecedor pessoa física sempre agregado e texto livre dos contratos de pessoa física nunca exibido) já nos marts, que são o que o painel lê. O tempo de casa e o objeto, junto com a unidade e o valor, ajudariam a identificar a pessoa.
+**Motivo:** cumpre o requisito da decisão 6 da transformação (fornecedor pessoa física e empresário individual sempre agregados e texto livre dos contratos deles nunca exibido) já nos marts, que são o que o painel lê. O tempo de casa e o objeto, junto com a unidade e o valor, ajudariam a identificar a pessoa. O empresário individual é pessoa jurídica no PNCP, mas o nome dele é o de uma pessoa, seguido do CPF; a linha separada mostra quanto a FAB contrata de microempreendedores sem misturá-los com pessoas físicas.
 
-**Custo da decisão:** o time de licitações não vê quem é o incumbente pessoa física nem há quanto tempo ele atende a unidade. São 25 contratos.
+**Custo da decisão:** o time de licitações não vê quem é o incumbente pessoa física ou empresário individual nem há quanto tempo ele atende a unidade. São 25 contratos de pessoa física e 164 de empresário individual, de 93 fornecedores.
 
 ## Marts
 
@@ -228,28 +228,28 @@ Perguntas: quais contratos vencem em 3, 6 e 12 meses, quem os detém e há quant
 | --- | --- |
 | `numero_controle_pncp` | chave |
 | `unidade_codigo`, `unidade_nome`, `uf`, `municipio` | |
-| `objeto_contrato` | nulo para pessoa física (decisão 5) |
+| `objeto_contrato` | nulo para pessoa física e empresário individual (decisão 5) |
 | `valor_global`, `data_vigencia_fim`, `dias_para_vencer` | |
 | `faixa_vencimento` | `ate_3_meses`, `3_a_6_meses` ou `6_a_12_meses` (faixas que não se sobrepõem; "em 6 meses" soma as duas primeiras) |
-| `fornecedor_id`, `fornecedor_nome`, `tipo_pessoa` | incumbente; "Pessoa física" sem identificador (decisão 5) |
-| `cliente_desde`, `tempo_de_casa_anos`, `contratos_do_fornecedor_na_unidade` | termo "Tempo de casa"; nulos para pessoa física |
+| `fornecedor_id`, `fornecedor_nome`, `tipo_pessoa` | incumbente; "Pessoa física" ou "Empresário individual", sem identificador (decisão 5) |
+| `cliente_desde`, `tempo_de_casa_anos`, `contratos_do_fornecedor_na_unidade` | termo "Tempo de casa"; nulos para pessoa física e empresário individual |
 | `segmento` | decisão 4 |
 
 ### 06_fornecedores
 
 Perguntas: quem são os maiores fornecedores da FAB e quão concentrado é o mercado?
 
-**`marts.fornecedores`**, uma linha por fornecedor (todos os contratos de pessoa física numa linha só).
+**`marts.fornecedores`**, uma linha por fornecedor (todos os contratos de pessoa física numa linha só, e todos os de empresário individual em outra).
 
 | Coluna | Conteúdo |
 | --- | --- |
 | `posicao` | no ranking por valor contratado |
-| `fornecedor_id`, `fornecedor_nome`, `tipo_pessoa` | `fornecedor_id` nulo para "Pessoa física" |
+| `fornecedor_id`, `fornecedor_nome`, `tipo_pessoa` | `fornecedor_id` nulo para "Pessoa física" e "Empresário individual" |
 | `contratos`, `valor_contratado` | soma de `valor_global`, em todos os contratos, qualquer que seja a `ligacao_compra` |
 | `participacao`, `participacao_acumulada` | Pareto |
 | `ate_80_por_cento` | verdadeiro para os fornecedores que, em ordem, compõem os primeiros 80% do valor (inclui o que cruza os 80%) |
 
-**`marts.fornecedores_resumo`** (uma linha): `fornecedores`, `fornecedores_80_por_cento` e `valor_contratado`. Na refined de 10/11/2026, 41 dos 3.575 fornecedores fazem 80% do valor contratado.
+**`marts.fornecedores_resumo`** (uma linha): `fornecedores`, `fornecedores_80_por_cento` e `valor_contratado`. Na refined de 10/11/2026, 41 dos 3.483 fornecedores fazem 80% do valor contratado.
 
 ### 07_compras_sem_resultado
 
@@ -301,6 +301,25 @@ Perguntas: quanto a FAB compra de TI e de dados, onde, o que está aberto e quem
 | `fornecedor_id`, `fornecedor_nome`, `tipo_pessoa` | como no mart 06 |
 | `contratos`, `valor_contratado`, `participacao_no_segmento` | |
 
+### 10_kpis
+
+Perguntas: quanto a FAB comprou no ano, o que pede ação agora, qual desconto costuma sair, quão concentrado é o mercado e de quando é o dado? Criado para os cartões e a saúde do dado do painel ([specs/painel.md](painel.md)), que não calcula nenhum número na tela.
+
+**`marts.kpis`**, uma linha.
+
+| Coluna | Conteúdo | Na refined de 10/11/2026 |
+| --- | --- | --- |
+| `data_referencia`, `ano_referencia` | data de referência e o ano dela | 09/11/2026, 2026 |
+| `extraido_em` | fim da última ingestão com sucesso: o maior `fim` em `raw.execucoes` da rodada de `marts.referencia` | 10/11/2026 20:54 |
+| `publicacao_mais_recente` | maior `data_publicacao_pncp` entre compras e contratos | 09/11/2026 17:29 |
+| `compras_ano`, `valor_estimado_ano` | compras publicadas no ano da data de referência e a soma do valor estimado | 3.151; 11,5 bilhões |
+| `propostas_abertas`, `valor_estimado_propostas_abertas` | linhas e valor estimado do mart 04 | 197 |
+| `contratos_a_vencer_3_meses`, `valor_a_vencer_3_meses` | contratos do mart 05 na faixa `ate_3_meses` e a soma de `valor_global` | 326; 578,6 milhões |
+| `desconto_mediano_ano`, `compras_com_desconto_ano` | mediana do termo "Desconto" nas compras publicadas no ano da data de referência e quantas compras entram nela | 21,2%; 2.319 |
+| `fornecedores`, `fornecedores_80_por_cento` | do mart 06 (`fornecedores_resumo`) | 3.483; 41 |
+
+O ano da data de referência está incompleto (vai até a data de referência); o painel diz isso no rodapé do cartão.
+
 **`marts.execucoes`** (uma linha por execução dos marts; não é recriada)
 
 | Coluna | Conteúdo |
@@ -344,7 +363,7 @@ Os marts sozinhos seguem a mesma pré-condição: recusam rodar se a última tra
 - [ ] As três conferências da decisão 2 passam sobre a refined real.
 - [ ] Uma falha no meio deixa os marts anteriores intactos e fica registrada em `marts.execucoes`.
 - [ ] Rodar duas vezes sobre a mesma refined gera tabelas idênticas.
-- [ ] Nenhum mart expõe `ni_fornecedor` nem objeto de contrato de pessoa física.
+- [ ] Nenhum mart expõe `ni_fornecedor`, nem nome ou objeto de contrato de pessoa física ou de empresário individual.
 - [ ] A contagem por segmento e uma amostra de objetos de `dados` e de `ti` foram revisadas, e a lista de termos foi ajustada se preciso.
 - [ ] Os testes cobrem cada mart com dados falsos, num DuckDB em memória, sem internet e sem abrir o banco do projeto.
 - [ ] O README descreve a camada de marts, as perguntas que cada mart responde, os próximos passos e o tempo medido.
@@ -361,4 +380,4 @@ Os marts sozinhos seguem a mesma pré-condição: recusam rodar se a última tra
 - Os itens dos próximos passos.
 - Corrigir ou excluir registros com anomalia.
 - Classificar outros segmentos além de TI e dados.
-- Indicadores por fornecedor pessoa física individualizado.
+- Indicadores por fornecedor pessoa física ou empresário individual individualizado.

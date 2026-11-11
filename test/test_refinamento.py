@@ -340,3 +340,53 @@ def test_ligacao_no_contrato():
     compras = {f"{CNPJ_MATRIZ}-1-000001/2024"}
     [contrato] = linhas_contratos([linha(registro)], compras, CNPJS, CNPJ_MATRIZ, INICIO)
     assert contrato["ligacao_compra"] == "compra_encontrada"
+
+
+# --- empresário individual (CPF no nome do fornecedor) ---------------------------------------
+
+MEI = "33222111000199"
+
+
+def contratos_de(*registros):
+    return linhas_contratos([linha(r) for r in registros], set(), (CNPJ_MATRIZ,), CNPJ_MATRIZ, date(2023, 1, 1))
+
+
+def test_cpf_no_nome_e_mascarado_e_marca_empresario_individual():
+    [contrato] = contratos_de(contrato_falso(niFornecedor=MEI, nomeRazaoSocialFornecedor=f"JOAO FICTICIO {CPF}"))
+    assert contrato["nome_razao_social_fornecedor"] == f"JOAO FICTICIO {MASCARA}"
+    assert contrato["fornecedor_empresario_individual"] == "true"
+
+
+def test_cpf_formatado_no_nome_tambem_conta():
+    [contrato] = contratos_de(
+        contrato_falso(niFornecedor=MEI, nomeRazaoSocialFornecedor="JOAO FICTICIO 123.456.789-09")
+    )
+    assert contrato["nome_razao_social_fornecedor"] == f"JOAO FICTICIO {MASCARA}"
+    assert contrato["fornecedor_empresario_individual"] == "true"
+
+
+def test_empresario_individual_marca_todos_os_contratos_do_fornecedor():
+    com_cpf = contrato_falso(niFornecedor=MEI, nomeRazaoSocialFornecedor=f"JOAO FICTICIO {CPF}")
+    sem_cpf = contrato_falso(
+        f"{CNPJ_MATRIZ}-2-000002/2024", niFornecedor=MEI, nomeRazaoSocialFornecedor="JOAO FICTICIO"
+    )
+    outro = contrato_falso(f"{CNPJ_MATRIZ}-2-000003/2024")
+    contratos = {c["numero_controle_pncp"]: c for c in contratos_de(com_cpf, sem_cpf, outro)}
+    assert contratos[f"{CNPJ_MATRIZ}-2-000002/2024"]["fornecedor_empresario_individual"] == "true"
+    assert contratos[f"{CNPJ_MATRIZ}-2-000002/2024"]["nome_razao_social_fornecedor"] == "JOAO FICTICIO"
+    assert contratos[f"{CNPJ_MATRIZ}-2-000003/2024"]["fornecedor_empresario_individual"] == "false"
+
+
+def test_pessoa_fisica_com_cpf_no_nome_e_mascarada_mas_nao_e_empresario_individual():
+    [contrato] = contratos_de(
+        contrato_falso(tipoPessoa="PF", niFornecedor=CPF, nomeRazaoSocialFornecedor=f"MARIA FICTICIA {CPF}")
+    )
+    assert contrato["nome_razao_social_fornecedor"] == f"MARIA FICTICIA {MASCARA}"
+    assert contrato["fornecedor_empresario_individual"] == "false"
+
+
+def test_nome_sem_cpf_nao_e_empresario_individual():
+    # 11 dígitos com verificador inválido não contam.
+    [contrato] = contratos_de(contrato_falso(nomeRazaoSocialFornecedor=f"EMPRESA {CPF_INVALIDO} LTDA"))
+    assert contrato["nome_razao_social_fornecedor"] == f"EMPRESA {CPF_INVALIDO} LTDA"
+    assert contrato["fornecedor_empresario_individual"] == "false"
