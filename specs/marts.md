@@ -56,7 +56,7 @@ Cada mart é uma tabela já agregada no grão da pergunta que responde, montada 
 - **Recriação inteira:** a cada execução, o schema `marts` é recriado do zero a partir da refined, numa única transação. Se algo falhar no meio, os marts anteriores ficam intactos. A exceção é `marts.execucoes`, que acumula o histórico.
 - **Pré-condição:** os marts se recusam a rodar se a última execução da transformação (a linha mais recente de `refined.execucoes`) não terminou com sucesso.
 - **Data de referência:** gravada em `marts.referencia`, a partir da rodada de ingestão usada pela última transformação (`rodada_ingestao`). Todo mart que depende de data lê dessa tabela, nunca da data do relógio.
-- **Ordem:** os arquivos de `sql/marts/` rodam em ordem de nome. O `00_segmento_objeto.sql` roda primeiro, porque os marts 04, 05 e 09 dependem dele.
+- **Ordem:** os arquivos de `sql/marts/` rodam em ordem de nome. O `00_segmento_objeto.sql` roda primeiro, porque os marts 04, 05 e 09 dependem dele, e o `10_kpis.sql` roda por último, porque lê os marts 04, 05 e 06.
 - **Comando único:** `python -m pipeline` passa a rodar ingestão, transformação e marts, cada etapa só se a anterior terminar com sucesso.
 
 **Conferências que fazem os marts falharem:**
@@ -300,6 +300,25 @@ Perguntas: quanto a FAB compra de TI e de dados, onde, o que está aberto e quem
 | `segmento`, `posicao` | chave |
 | `fornecedor_id`, `fornecedor_nome`, `tipo_pessoa` | como no mart 06 |
 | `contratos`, `valor_contratado`, `participacao_no_segmento` | |
+
+### 10_kpis
+
+Perguntas: quanto a FAB comprou no ano, o que pede ação agora, qual desconto costuma sair, quão concentrado é o mercado e de quando é o dado? Criado para os cartões e a saúde do dado do painel ([specs/painel.md](painel.md)), que não calcula nenhum número na tela.
+
+**`marts.kpis`**, uma linha.
+
+| Coluna | Conteúdo | Na refined de 10/11/2026 |
+| --- | --- | --- |
+| `data_referencia`, `ano_referencia` | data de referência e o ano dela | 09/11/2026, 2026 |
+| `extraido_em` | fim da última ingestão com sucesso: o maior `fim` em `raw.execucoes` da rodada de `marts.referencia` | 10/11/2026 20:54 |
+| `publicacao_mais_recente` | maior `data_publicacao_pncp` entre compras e contratos | 09/11/2026 17:29 |
+| `compras_ano`, `valor_estimado_ano` | compras publicadas no ano da data de referência e a soma do valor estimado | 3.151; 11,5 bilhões |
+| `propostas_abertas`, `valor_estimado_propostas_abertas` | linhas e valor estimado do mart 04 | 197 |
+| `contratos_a_vencer_3_meses`, `valor_a_vencer_3_meses` | contratos do mart 05 na faixa `ate_3_meses` e a soma de `valor_global` | 326; 578,6 milhões |
+| `desconto_mediano_ano`, `compras_com_desconto_ano` | mediana do termo "Desconto" nas compras publicadas no ano da data de referência e quantas compras entram nela | 21,2%; 2.319 |
+| `fornecedores`, `fornecedores_80_por_cento` | do mart 06 (`fornecedores_resumo`) | 3.575; 41 |
+
+O ano da data de referência está incompleto (vai até a data de referência); o painel diz isso no rodapé do cartão.
 
 **`marts.execucoes`** (uma linha por execução dos marts; não é recriada)
 
