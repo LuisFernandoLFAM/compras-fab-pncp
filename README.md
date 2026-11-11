@@ -140,4 +140,5 @@ A primeira medição da carga completa deu 9h38min, porque o computador suspende
 
 - [specs/ingestao.md](specs/ingestao.md): spec da etapa 1, com as decisões e os motivos.
 - [specs/transformacao.md](specs/transformacao.md): spec da etapa 2, com as decisões, as regras de anomalia e os motivos.
+- [docs/investigacao-transformacao.md](docs/investigacao-transformacao.md): investigação da camada raw que embasou a spec da etapa 2, incluindo a descoberta das compras publicadas pelas filiais.
 - [docs/analise-carga-completa.md](docs/analise-carga-completa.md): análise do tempo da primeira carga completa e das respostas HTTP 429.
