@@ -70,17 +70,21 @@ Os marts são tabelas já agregadas no grão da pergunta que respondem, pensadas
 
 Os termos usados (compra, desconto, proposta aberta, compra provavelmente sem resultado, contrato a vencer, fornecedor, incumbente) têm definição fechada na spec. As datas relativas, como "proposta aberta" e "contrato a vencer", usam a data de referência, que é o último dia coberto pela ingestão, e não a data do relógio. Ela fica em `marts.referencia`.
 
-| Mart | Tabelas | Perguntas que responde |
-| --- | --- | --- |
-| 01 | `marts.compras_mensal` | Quanto a FAB compra por mês e por ano? Em que meses ela compra mais? |
-| 02 | `marts.compras_por_unidade` | Quais unidades compram mais, onde ficam e com que frequência suas compras são revogadas, anuladas ou ficam provavelmente sem resultado? |
-| 03 | `marts.compras_por_modalidade`, `marts.contratos_por_categoria` | Por qual modalidade a FAB compra, de que tamanho são as compras, quanto tempo há para preparar a proposta e qual desconto costuma sair? Nos contratos, em que categoria? |
-| 04 | `marts.propostas_abertas` | O que está aberto agora e até quando dá para enviar proposta? |
-| 05 | `marts.contratos_a_vencer` | Quais contratos vencem em 3, 6 e 12 meses, quem os detém e há quanto tempo atende a unidade? |
-| 06 | `marts.fornecedores`, `marts.fornecedores_resumo` | Quem são os maiores fornecedores e quão concentrado é o mercado (quantos fazem 80% do valor)? |
-| 07 | `marts.compras_sem_resultado` | Onde as compras com disputa costumam terminar provavelmente sem resultado? |
-| 08 | `marts.dispensas_com_disputa` | Quais unidades fazem dispensas com disputa, em que volume e com que desconto? |
-| 09 | `marts.ti_e_dados`, `marts.ti_e_dados_fornecedores` | Quanto a FAB compra de TI e de dados, onde, o que está aberto e quem fornece? |
+| Mart | Tabelas | Uma linha por | Perguntas que responde |
+| --- | --- | --- | --- |
+| 00 | `marts.segmento_objeto` | compra ou contrato, com o segmento (`dados`, `ti` ou `outros`) e o termo que casou | Qual é o segmento do objeto de cada compra e contrato? (base dos marts 04, 05 e 09) |
+| 01 | `marts.compras_mensal` | ano e mês de publicação | Quanto a FAB compra por mês e por ano? Em que meses ela compra mais? |
+| 02 | `marts.compras_por_unidade` | unidade e ano de publicação | Quais unidades compram mais, onde ficam e com que frequência suas compras são revogadas, anuladas ou ficam provavelmente sem resultado? |
+| 03 | `marts.compras_por_modalidade`, `marts.contratos_por_categoria` | modalidade e ano; categoria do processo e ano | Por qual modalidade a FAB compra, de que tamanho são as compras, quanto tempo há para preparar a proposta e qual desconto costuma sair? Nos contratos, em que categoria? |
+| 04 | `marts.propostas_abertas` | compra com proposta aberta | O que está aberto agora e até quando dá para enviar proposta? |
+| 05 | `marts.contratos_a_vencer` | contrato a vencer em até 12 meses | Quais contratos vencem em 3, 6 e 12 meses, quem os detém e há quanto tempo atende a unidade? |
+| 06 | `marts.fornecedores`, `marts.fornecedores_resumo` | fornecedor, com "Pessoa física" e "Empresário individual" agregados numa linha cada; o resumo tem uma linha | Quem são os maiores fornecedores e quão concentrado é o mercado (quantos fazem 80% do valor)? |
+| 07 | `marts.compras_sem_resultado` | unidade, modalidade e ano, onde há compras elegíveis | Onde as compras com disputa costumam terminar provavelmente sem resultado? |
+| 08 | `marts.dispensas_com_disputa` | unidade e ano, onde houve dispensa | Quais unidades fazem dispensas com disputa, em que volume e com que desconto? |
+| 09 | `marts.ti_e_dados`, `marts.ti_e_dados_fornecedores` | segmento, ano e unidade; os 10 maiores fornecedores de cada segmento | Quanto a FAB compra de TI e de dados, onde, o que está aberto e quem fornece? |
+| 10 | `marts.kpis` | uma linha | Quanto a FAB comprou no ano, o que pede ação agora, qual desconto costuma sair, quão concentrado é o mercado e de quando é o dado? (cartões e saúde do dado do painel) |
+| | `marts.referencia` | uma linha | Qual é a data de referência dos marts e de qual ingestão e transformação ela veio? |
+| | `marts.execucoes` | execução dos marts; acumula o histórico, não é recriada | Quando os marts rodaram e com que resultado? |
 
 - **Segmento do objeto:** `marts.segmento_objeto` classifica cada compra e cada contrato em `dados`, `ti` ou `outros`, por palavras-chave no objeto, e guarda o termo que casou, para auditoria. É uma classificação heurística: a categoria oficial "Informática (TIC)" cobria só 18 de 151 contratos de software numa amostra. O segmento inclui capacitação em TI e dados (cursos, pós-graduações, MBAs), que mostra demanda de formação, e não só fornecimento de tecnologia.
 - **Pessoa física e empresário individual:** nos marts, o fornecedor pessoa física aparece sempre agregado como "Pessoa física", e o empresário individual numa linha própria, "Empresário individual", ambos sem identificador, sem nome e sem o objeto do contrato.
@@ -150,7 +154,7 @@ Números medidos com o Comando da Aeronáutica:
 | Carga completa das 7 filiais (09 e 10/11/2026) | 1.003 | cerca de 2h39min (soma de 9 execuções, incluindo 2 que falharam e foram retomadas) | 654 linhas (649 contratações e 5 contratos) |
 | Incremental da matriz num dia útil (09/11/2026) | 14 | 59 s | 61 linhas |
 | Transformação da raw inteira (10/11/2026) | 0 | 2,5 s | 13.677 contratações, 1.434 fontes, 6.786 contratos e 624 anomalias |
-| Marts sobre a refined inteira (10/11/2026) | 0 | 3,9 s | 14 tabelas recriadas, das quais 20.463 linhas de segmento e 3.575 fornecedores |
+| Marts sobre a refined inteira (10/11/2026) | 0 | 3,9 s | 14 tabelas recriadas, das quais 20.463 linhas de segmento e 3.483 fornecedores (Pessoa física e Empresário individual contados como um cada) |
 | Relatório HTML (10/11/2026) | 0 | 0,9 s | `docs/relatorio.html`, 5,7 MB com o Plotly embutido |
 
 A primeira medição da carga completa deu 9h38min, porque o computador suspendeu três vezes durante a execução; descontadas as suspensões, foram cerca de 81 minutos de trabalho. A análise está em [docs/analise-carga-completa.md](docs/analise-carga-completa.md).
