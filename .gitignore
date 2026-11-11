@@ -4,3 +4,4 @@ __pycache__/
 *.duckdb.wal
 data/
 .env
+docs/relatorio.html
