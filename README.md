@@ -15,9 +15,10 @@ Os dados passam por camadas:
 1. **Landing zone** (`data/landing/`): cada resposta da API salva em arquivo, exatamente como chegou.
 2. **Camada bruta** (schema `raw`): um registro por linha, com o JSON original e colunas de controle da coleta. Guarda todas as versões de cada registro, sem apagar nem alterar.
 3. **Camada refinada** (schema `refined`): uma linha por contratação e por contrato, na versão vigente, com colunas tipadas, vazios normalizados, CPF de pessoa física mascarado, anomalias sinalizadas e cada contrato ligado à sua compra.
-4. **Marts e painel**: etapas seguintes.
+4. **Marts** (schema `marts`): tabelas de indicadores prontas para o time de licitações de uma empresa que quer vender para a FAB.
+5. **Painel**: etapa seguinte.
 
-Por enquanto, estão implementadas as etapas 1 (landing zone e camada `raw`) e 2 (camada `refined`).
+Por enquanto, estão implementadas as etapas 1 (landing zone e camada `raw`), 2 (camada `refined`) e 3 (marts).
 
 ## Tabelas
 
@@ -62,6 +63,29 @@ A camada `refined` é recriada inteira a partir da `raw` a cada execução, numa
 
 Os avisos são contados na coluna `avisos` de `refined.execucoes`.
 
+### Marts
+
+Os marts são tabelas já agregadas no grão da pergunta que respondem, pensadas para o time de licitações de uma empresa que quer vender para a FAB. Cada um é um arquivo SQL em `sql/marts/`, com o grão escrito no topo. O schema `marts` é recriado inteiro a cada execução, numa única transação, e só depois de uma transformação com sucesso ([spec da etapa 3](specs/marts.md)).
+
+Os termos usados (compra, desconto, proposta aberta, compra provavelmente sem resultado, contrato a vencer, fornecedor, incumbente) têm definição fechada na spec. As datas relativas, como "proposta aberta" e "contrato a vencer", usam a data de referência, que é o último dia coberto pela ingestão, e não a data do relógio. Ela fica em `marts.referencia`.
+
+| Mart | Tabelas | Perguntas que responde |
+| --- | --- | --- |
+| 01 | `marts.compras_mensal` | Quanto a FAB compra por mês e por ano? Em que meses ela compra mais? |
+| 02 | `marts.compras_por_unidade` | Quais unidades compram mais, onde ficam e com que frequência suas compras são revogadas, anuladas ou ficam provavelmente sem resultado? |
+| 03 | `marts.compras_por_modalidade`, `marts.contratos_por_categoria` | Por qual modalidade a FAB compra, de que tamanho são as compras, quanto tempo há para preparar a proposta e qual desconto costuma sair? Nos contratos, em que categoria? |
+| 04 | `marts.propostas_abertas` | O que está aberto agora e até quando dá para enviar proposta? |
+| 05 | `marts.contratos_a_vencer` | Quais contratos vencem em 3, 6 e 12 meses, quem os detém e há quanto tempo atende a unidade? |
+| 06 | `marts.fornecedores`, `marts.fornecedores_resumo` | Quem são os maiores fornecedores e quão concentrado é o mercado (quantos fazem 80% do valor)? |
+| 07 | `marts.compras_sem_resultado` | Onde as compras com disputa costumam terminar provavelmente sem resultado? |
+| 08 | `marts.dispensas_com_disputa` | Quais unidades fazem dispensas com disputa, em que volume e com que desconto? |
+| 09 | `marts.ti_e_dados`, `marts.ti_e_dados_fornecedores` | Quanto a FAB compra de TI e de dados, onde, o que está aberto e quem fornece? |
+
+- **Segmento do objeto:** `marts.segmento_objeto` classifica cada compra e cada contrato em `dados`, `ti` ou `outros`, por palavras-chave no objeto, e guarda o termo que casou, para auditoria. É uma classificação heurística: a categoria oficial "Informática (TIC)" cobria só 18 de 151 contratos de software numa amostra. O segmento inclui capacitação em TI e dados (cursos, pós-graduações, MBAs), que mostra demanda de formação, e não só fornecimento de tecnologia.
+- **Pessoa física:** nos marts, o fornecedor pessoa física aparece sempre agregado como "Pessoa física", sem identificador e sem o objeto do contrato.
+- **Conferências:** o total de compras e de contratos, uma linha de segmento por registro e o valor contratado total precisam bater com a refined; senão, os marts anteriores ficam intactos.
+- **Notas de leitura:** cada indicador deixa algo de fora (compras com estimado zero, homologado nulo, contratos sem compra encontrada, o mês corrente incompleto). A lista está na spec.
+
 ## Como rodar
 
 Pré-requisito: [uv](https://docs.astral.sh/uv/), que instala o Python e as dependências do projeto.
@@ -76,9 +100,10 @@ cd compras-fab-pncp
 Depois:
 
 ```bash
-uv run python -m pipeline                             # ingestão e, se ela terminar com sucesso, transformação
+uv run python -m pipeline                             # ingestão, transformação e marts, cada etapa só se a anterior der certo
 uv run python -m pipeline --ate 2026-10-31            # aceita os mesmos parâmetros da ingestão
 uv run python -m pipeline.transformacao               # só a transformação, sobre a raw atual
+uv run python -m pipeline.marts                       # só os marts, sobre a refined atual
 uv run python -m pipeline.ingestao                    # só a ingestão: completa na 1ª vez, incremental depois
 uv run python -m pipeline.ingestao --completa         # força a carga completa
 uv run python -m pipeline.ingestao --ate 2026-10-31   # define a data final
@@ -87,7 +112,7 @@ uv run python -m pipeline.ingestao --reconstruir      # recria o banco a partir 
 
 A primeira execução de cada CNPJ faz a carga completa, de 01/01/2023 até ontem. As seguintes trazem só o que foi publicado ou atualizado desde a última execução com sucesso. Se uma execução falhar, basta rodar de novo: ela retoma das janelas que ficaram incompletas.
 
-A transformação recusa rodar se a última rodada de ingestão não terminou com sucesso para todos os CNPJs do `config.toml`.
+A transformação recusa rodar se a última rodada de ingestão não terminou com sucesso para todos os CNPJs do `config.toml`, e os marts recusam rodar se a última transformação não terminou com sucesso.
 
 Testes:
 
@@ -110,6 +135,7 @@ Números medidos com o Comando da Aeronáutica:
 | Carga completa das 7 filiais (09 e 10/11/2026) | 1.003 | cerca de 2h39min (soma de 9 execuções, incluindo 2 que falharam e foram retomadas) | 654 linhas (649 contratações e 5 contratos) |
 | Incremental da matriz num dia útil (09/11/2026) | 14 | 59 s | 61 linhas |
 | Transformação da raw inteira (10/11/2026) | 0 | 2,5 s | 13.677 contratações, 1.434 fontes, 6.786 contratos e 624 anomalias |
+| Marts sobre a refined inteira (10/11/2026) | 0 | 3,9 s | 14 tabelas recriadas, das quais 20.463 linhas de segmento e 3.575 fornecedores |
 
 A primeira medição da carga completa deu 9h38min, porque o computador suspendeu três vezes durante a execução; descontadas as suspensões, foram cerca de 81 minutos de trabalho. A análise está em [docs/analise-carga-completa.md](docs/analise-carga-completa.md).
 
@@ -136,9 +162,17 @@ A primeira medição da carga completa deu 9h38min, porque o computador suspende
 
 **Sondagem com janelas anuais.** A sondagem foi desenhada com janelas anuais, mas o endpoint de contratos da API desiste de consultas anuais pesadas com HTTP 500 depois de cerca de 55 s. Percebi quando a carga parou duas vezes no mesmo ponto. Corrigi para que uma sondagem que falha caia para a consulta mês a mês, sem pular nenhum mês.
 
+## Próximos passos
+
+- **Modelo estrela** (fatos e dimensões), adiado nos marts por prazo.
+- **Recorrência de compras por unidade:** que objetos cada unidade compra todo ano, para antecipar a próxima compra.
+- **Atas e adesões:** atas de registro de preço e compras feitas por adesão.
+- **Painel**, com as notas de leitura de cada indicador.
+
 ## Documentação
 
 - [specs/ingestao.md](specs/ingestao.md): spec da etapa 1, com as decisões e os motivos.
 - [specs/transformacao.md](specs/transformacao.md): spec da etapa 2, com as decisões, as regras de anomalia e os motivos.
+- [specs/marts.md](specs/marts.md): spec da etapa 3, com a persona, os termos, os marts e as notas de leitura.
 - [docs/investigacao-transformacao.md](docs/investigacao-transformacao.md): investigação da camada raw que embasou a spec da etapa 2, incluindo a descoberta das compras publicadas pelas filiais.
 - [docs/analise-carga-completa.md](docs/analise-carga-completa.md): análise do tempo da primeira carga completa e das respostas HTTP 429.
