@@ -55,7 +55,7 @@ Notas de leitura:
 
 - "Proposta aberta" é relativa à data de referência; se a ingestão parar, compras já encerradas continuam aparecendo.
 - Contratos com vigência sem fim (21) nunca aparecem como a vencer.
-- Incumbente pessoa física aparece como "Pessoa física", sem objeto e sem tempo de casa.
+- Incumbente pessoa física ou empresário individual aparece como "Pessoa física" ou "Empresário individual", sem objeto e sem tempo de casa.
 - O segmento é heurístico e inclui capacitação (cursos, pós-graduações, MBAs).
 
 ### Seção 2: Onde está o dinheiro
@@ -86,7 +86,7 @@ Notas de leitura:
 Notas de leitura:
 
 - O valor contratado soma `valor_global` de todos os contratos do período, inclusive os 164 sem compra encontrada.
-- Todos os contratos de pessoa física formam uma única linha, "Pessoa física".
+- Todos os contratos de pessoa física formam uma única linha, "Pessoa física", e todos os de empresário individual (MEI), outra, "Empresário individual".
 - O nome exibido é o do contrato mais recente do fornecedor.
 
 ### Seção 4: Onde há espaço
@@ -129,7 +129,7 @@ A fonte (API de consulta do PNCP), a cobertura (matriz e 7 filiais do Comando da
 | `painel.py` | Só faz SELECT nos marts. Cada consulta é uma função que devolve um DataFrame. |
 | `graficos.py` | Monta as figuras Plotly a partir dos DataFrames, sem calcular nenhum número. |
 | `app.py` | Desenha a tela em Streamlit com as consultas de `painel.py` e as figuras de `graficos.py`. |
-| `relatorio.py` | Gera `relatorio.html` com as mesmas consultas e as mesmas figuras. |
+| `relatorio.py` | Gera `docs/relatorio.html` com as mesmas consultas e as mesmas figuras. |
 
 **Motivo:** é o padrão da aula 4, com um módulo a mais para as figuras. Sem ele, o painel e o relatório teriam cada um a sua cópia de cada gráfico, e os dois iam divergir. `painel.py` continua só com SELECT.
 
@@ -165,19 +165,19 @@ Em `app.py`, a leitura dos marts fica em funções com `st.cache_data`. Um botã
 
 ### 5. Relatório HTML autocontido
 
-`relatorio.py` grava `relatorio.html` na raiz do projeto, com as mesmas seções, cartões, gráficos, tabelas e notas de leitura do painel, para o ano da data de referência e sem filtro de segmento. O JavaScript do Plotly vai embutido uma vez no arquivo; nada é carregado da internet.
+`relatorio.py` grava `docs/relatorio.html`, com as mesmas seções, cartões, gráficos, tabelas e notas de leitura do painel, para o ano da data de referência e sem filtro de segmento. A data de referência e a data da extração ficam visíveis no topo. O JavaScript do Plotly vai embutido uma vez no arquivo; nada é carregado da internet.
 
 **Motivo:** o relatório pode ser enviado por e-mail ou aberto sem rede e sem Python.
 
 **Custo da decisão:** o arquivo fica com alguns megabytes, por causa do Plotly embutido; o relatório é uma foto do dia, sem os filtros do painel.
 
-**Versionamento:** `relatorio.html` fica fora do git (`.gitignore`), porque é derivado do banco, que também fica fora.
+**Versionamento:** `docs/relatorio.html` fica versionado no git, como uma foto dos indicadores na data de referência mostrada no topo. Assim, quem visita o repositório vê os indicadores sem rodar nada, mesmo sem o banco, que continua fora do git. A foto só muda quando alguém gera o relatório de novo e faz commit; a data no topo diz de quando ela é.
 
-### 6. Pessoa física e texto livre
+### 6. Pessoa física, empresário individual e texto livre
 
-O painel só mostra colunas dos marts, que já cumprem a decisão 6 da transformação e a decisão 5 dos marts: fornecedor pessoa física sempre agregado como "Pessoa física", sem identificador, e nenhum objeto de contrato de pessoa física. O painel não exibe `ni_fornecedor` em nenhum lugar, nem de pessoa jurídica.
+O painel só mostra colunas dos marts, que já cumprem a decisão 6 da transformação e a decisão 5 dos marts: fornecedor pessoa física sempre agregado como "Pessoa física" e empresário individual como "Empresário individual", numa linha própria, ambos sem identificador e sem nome, e nenhum objeto de contrato deles. O painel não exibe `ni_fornecedor` em nenhum lugar, nem de pessoa jurídica.
 
-**Motivo:** a regra fica garantida nos marts, e o painel não tem como desfazê-la por engano.
+**Motivo:** a regra fica garantida nos marts, e o painel não tem como desfazê-la por engano. O empresário individual entrou depois que a conferência por contagem do primeiro relatório achou um CPF completo dentro do nome de um fornecedor pessoa jurídica (o MEI é registrado com o nome "nome da pessoa + CPF").
 
 **Custo da decisão:** o identificador do fornecedor pessoa jurídica (CNPJ) não aparece na tela, só o nome.
 
@@ -185,7 +185,7 @@ O painel só mostra colunas dos marts, que já cumprem a decisão 6 da transform
 
 ```bash
 uv run streamlit run app.py   # abre o painel no navegador
-uv run python relatorio.py    # gera relatorio.html na raiz do projeto
+uv run python relatorio.py    # gera docs/relatorio.html
 ```
 
 O painel e o relatório leem os marts como estão; para dados novos, rode antes `uv run python -m pipeline`. Enquanto o pipeline grava no banco, o painel não consegue abri-lo.
@@ -197,8 +197,8 @@ O painel e o relatório leem os marts como estão; para dados novos, rode antes 
 - [ ] O topo mostra a extração, a publicação mais recente, o sinal de cor e a data de referência.
 - [ ] Os cinco cartões e as cinco seções aparecem na ordem do rascunho, cada gráfico com as suas notas de leitura.
 - [ ] O botão "Recarregar dados" lê os marts de novo.
-- [ ] `relatorio.html` abre sem internet e tem as mesmas seções e gráficos do painel.
-- [ ] Nenhum identificador de fornecedor nem objeto de contrato de pessoa física aparece no painel ou no relatório.
+- [ ] `docs/relatorio.html` abre sem internet, mostra a data de referência no topo e tem as mesmas seções e gráficos do painel.
+- [ ] Nenhum identificador de fornecedor, nem nome ou objeto de contrato de pessoa física ou de empresário individual, aparece no painel ou no relatório, e nenhum CPF aparece no relatório (conferido por contagem).
 - [ ] Os testes cobrem as funções de `painel.py` e `graficos.py` com um banco temporário, sem abrir o banco do projeto.
 - [ ] O README explica como abrir o painel e gerar o relatório.
 
