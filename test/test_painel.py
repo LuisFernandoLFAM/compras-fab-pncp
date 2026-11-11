@@ -158,8 +158,8 @@ def test_cartoes_na_ordem_do_rascunho(banco):
     assert cartoes[3]["valor"] == "20,0%"
 
 
-def test_figuras_com_dados(banco):
-    figuras = [
+def todas_as_figuras(banco) -> list[go.Figure]:
+    return [
         g.fig_compras_mensal(painel.compras_mensal(banco)),
         g.fig_sazonalidade(painel.compras_mensal(banco)),
         g.fig_unidades(painel.compras_por_unidade(2026, banco), 2026),
@@ -168,8 +168,21 @@ def test_figuras_com_dados(banco):
         g.fig_sem_resultado(painel.compras_sem_resultado(2026, banco), 2026),
         g.fig_dispensas(painel.dispensas_com_disputa(2025, banco), 2025),
         g.fig_ti_e_dados(painel.ti_e_dados(2026, "ti", banco), 2026, "ti"),
+        g.fig_ti_e_dados(painel.ti_e_dados(2026, "dados", banco), 2026, "dados"),
     ]
-    assert all(isinstance(f, go.Figure) and f.data for f in figuras)
+
+
+def test_figuras_com_dados(banco):
+    assert all(isinstance(f, go.Figure) and f.data for f in todas_as_figuras(banco))
+
+
+def test_caixa_de_detalhe_legivel_em_todas_as_figuras(banco):
+    # Fundo branco, texto escuro e borda cinza, para o tema claro e o escuro do Streamlit.
+    for fig in todas_as_figuras(banco):
+        rotulo = fig.layout.hoverlabel
+        assert (rotulo.bgcolor, rotulo.bordercolor, rotulo.font.color) == ("white", "#888888", "#222222")
+        # Nenhuma série sobrescreve a caixa definida no layout.
+        assert all(trace.hoverlabel.to_plotly_json() == {} for trace in fig.data)
 
 
 def test_figuras_sem_linhas_nao_quebram(banco):

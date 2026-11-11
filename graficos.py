@@ -14,6 +14,8 @@ COR_CLARA = "#9dbbd8"
 CORES_SINAL = {"verde": "#2e7d32", "amarelo": "#f9a825", "vermelho": "#c62828"}
 FAIXAS = {"ate_3_meses": "até 3 meses", "3_a_6_meses": "3 a 6 meses", "6_a_12_meses": "6 a 12 meses"}
 MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
+# Caixa de detalhe explícita: sem isso, o tema escuro do Streamlit deixa o texto claro sobre fundo branco.
+HOVERLABEL = {"bgcolor": "white", "bordercolor": "#888888", "font": {"color": "#222222"}}
 
 
 # --- formatação ---------------------------------------------------------------------------
@@ -206,7 +208,7 @@ def tabela_fornecedores_segmento(df: pd.DataFrame) -> pd.DataFrame:
 def _layout(fig: go.Figure, titulo: str, altura: int = 420) -> go.Figure:
     fig.update_layout(
         title=titulo, height=altura, margin={"l": 10, "r": 10, "t": 50, "b": 10},
-        plot_bgcolor="white", separators=",.", hoverlabel={"bgcolor": "white"},
+        plot_bgcolor="white", separators=",.", hoverlabel=HOVERLABEL,
     )
     fig.update_xaxes(gridcolor="#eeeeee")
     fig.update_yaxes(gridcolor="#eeeeee")
